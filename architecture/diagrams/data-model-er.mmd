@@ -1,0 +1,163 @@
+erDiagram
+    USER {
+        uuid id PK
+        string email
+        string display_name
+        string status
+        datetime created_at
+    }
+
+    WORKSPACE {
+        uuid id PK
+        string name
+        uuid owner_user_id FK
+        int ai_budget_monthly_tokens
+        datetime created_at
+    }
+
+    MEMBERSHIP {
+        uuid id PK
+        uuid workspace_id FK
+        uuid user_id FK
+        string workspace_role
+        datetime joined_at
+    }
+
+    TEAM {
+        uuid id PK
+        uuid workspace_id FK
+        string name
+        datetime created_at
+    }
+
+    TEAM_MEMBERSHIP {
+        uuid id PK
+        uuid team_id FK
+        uuid user_id FK
+        datetime joined_at
+    }
+
+    DOCUMENT {
+        uuid id PK
+        uuid workspace_id FK
+        uuid owner_user_id FK
+        string title
+        string head_storage_key
+        int current_version_no
+        string status
+        datetime created_at
+        datetime updated_at
+    }
+
+    DOCUMENT_VERSION {
+        uuid id PK
+        uuid document_id FK
+        int version_no
+        uuid based_on_version_id FK
+        uuid created_by_user_id FK
+        string storage_key
+        string change_summary
+        boolean is_revert
+        datetime created_at
+    }
+
+    DOCUMENT_PERMISSION {
+        uuid id PK
+        uuid document_id FK
+        string principal_type
+        uuid principal_id
+        string permission_level
+        datetime expires_at
+        uuid granted_by_user_id FK
+    }
+
+    SHARE_LINK {
+        uuid id PK
+        uuid document_id FK
+        string token_hash
+        string permission_level
+        datetime expires_at
+        int max_uses
+    }
+
+    COLLAB_SESSION {
+        uuid id PK
+        uuid document_id FK
+        uuid user_id FK
+        string client_instance_id
+        string last_ack_op_id
+        string last_state_vector
+        datetime connected_at
+        datetime disconnected_at
+    }
+
+    AI_REQUEST {
+        uuid id PK
+        uuid document_id FK
+        uuid requested_by_user_id FK
+        uuid base_version_id FK
+        string feature_type
+        string scope_type
+        int selection_start
+        int selection_end
+        string status
+        string model_name
+        int input_tokens
+        int output_tokens
+        datetime created_at
+    }
+
+    AI_SUGGESTION {
+        uuid id PK
+        uuid ai_request_id FK
+        string patch_format
+        string apply_status
+        uuid applied_version_id FK
+        datetime resolved_at
+    }
+
+    SUGGESTION_ACTION {
+        uuid id PK
+        uuid suggestion_id FK
+        uuid acted_by_user_id FK
+        string action_type
+        string accepted_ranges_json
+        datetime acted_at
+    }
+
+    AUDIT_EVENT {
+        uuid id PK
+        uuid workspace_id FK
+        uuid actor_user_id FK
+        uuid document_id FK
+        string action_type
+        string entity_type
+        string entity_id
+        string metadata_json
+        datetime created_at
+    }
+
+    USER ||--o{ MEMBERSHIP : joins
+    WORKSPACE ||--o{ MEMBERSHIP : contains
+    WORKSPACE ||--o{ TEAM : contains
+    USER ||--o{ TEAM_MEMBERSHIP : belongs_to
+    TEAM ||--o{ TEAM_MEMBERSHIP : includes
+    WORKSPACE ||--o{ DOCUMENT : owns
+    USER ||--o{ DOCUMENT : creates
+    DOCUMENT ||--o{ DOCUMENT_VERSION : has
+    USER ||--o{ DOCUMENT_VERSION : creates
+    DOCUMENT ||--o{ DOCUMENT_PERMISSION : shares_with
+    USER ||--o{ DOCUMENT_PERMISSION : may_receive
+    TEAM ||--o{ DOCUMENT_PERMISSION : may_receive
+    DOCUMENT ||--o{ SHARE_LINK : publishes
+    DOCUMENT ||--o{ COLLAB_SESSION : has
+    USER ||--o{ COLLAB_SESSION : opens
+    DOCUMENT ||--o{ AI_REQUEST : receives
+    USER ||--o{ AI_REQUEST : invokes
+    DOCUMENT_VERSION ||--o{ AI_REQUEST : anchors
+    AI_REQUEST ||--o{ AI_SUGGESTION : produces
+    AI_SUGGESTION ||--o{ SUGGESTION_ACTION : records
+    USER ||--o{ SUGGESTION_ACTION : performs
+    WORKSPACE ||--o{ AUDIT_EVENT : logs
+    USER ||--o{ AUDIT_EVENT : triggers
+    DOCUMENT ||--o{ AUDIT_EVENT : references

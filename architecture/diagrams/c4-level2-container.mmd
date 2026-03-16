@@ -1,0 +1,32 @@
+flowchart LR
+    user[Collaborator / Admin]
+    idp[External Identity Provider<br/>OIDC / SAML]
+    llm[Third-Party LLM Provider<br/>LLM API]
+
+    subgraph system[Collaborative Document Editor with AI Writing Assistant]
+        web[Web Editor SPA<br/>React + TypeScript + TipTap/Yjs + IndexedDB<br/>Rich-text editing, local state, offline queue, AI UX]
+        api[API Application<br/>NestJS + TypeScript REST/SSE<br/>Document CRUD, sharing, versions, authz, AI/job APIs]
+        collab[Collaboration Service<br/>Node.js + Hocuspocus/Yjs over WebSocket<br/>Live sync, presence, bootstrap, reconnect]
+        ai[AI Orchestrator Worker<br/>Node.js + BullMQ<br/>Prompt assembly, quotas, model routing, suggestion artifacts]
+        postgres[(PostgreSQL<br/>Users, documents, permissions, versions,<br/>AI metadata, audit events)]
+        redis[(Redis<br/>Presence, room cache, pub/sub,<br/>AI job queue)]
+        object[(Object Storage<br/>Version snapshots, exports,<br/>large AI suggestion payloads)]
+    end
+
+    user -->|HTTPS| web
+    web -->|REST/JSON + SSE| api
+    web <--> |WebSocket ops, presence, acks| collab
+
+    api -->|OIDC redirect / token validation| idp
+    api -->|SQL| postgres
+    api -->|Cache, pub/sub, job enqueue| redis
+    api -->|Read and write snapshots / exports| object
+
+    collab -->|Load head state / checkpoint metadata| postgres
+    collab -->|Presence fan-out / room coordination| redis
+    collab -->|Read and write large checkpoints| object
+
+    ai -->|Dequeue jobs / publish completion| redis
+    ai -->|Read document context / persist status| postgres
+    ai -->|Store suggestion payloads| object
+    ai -->|HTTPS prompt / response| llm

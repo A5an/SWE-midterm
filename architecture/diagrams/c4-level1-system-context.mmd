@@ -1,0 +1,14 @@
+flowchart LR
+    collaborator[Collaborator<br/>Editor / Commenter / Viewer]
+    admin[Workspace Admin]
+    idp[External Identity Provider<br/>OIDC / SAML]
+    llm[Third-Party LLM Provider<br/>Inference API]
+
+    subgraph system[Collaborative Document Editor with AI Writing Assistant]
+        platform[System Under Design]
+    end
+
+    collaborator -->|Create, edit, comment, export, request AI help| platform
+    admin -->|Manage members, sharing, AI policy, quotas, audit| platform
+    platform -->|Authenticate users and validate sessions| idp
+    platform -->|Send scoped prompts and receive completions| llm

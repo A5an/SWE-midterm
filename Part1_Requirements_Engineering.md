@@ -27,6 +27,7 @@ Collaborative Document Editor with AI Writing Assistant
 - `FR-AI-*`: AI writing assistant
 - `FR-DOC-*`: Document management
 - `FR-UM-*`: User management
+- `FR-VC-*`: Git-like version control
 
 ### 1.2.1 Real-Time Collaboration
 
@@ -102,6 +103,7 @@ Collaborative Document Editor with AI Writing Assistant
 | FR-UM-04 | Fine-grained AI permissions by role | Role policy is configured at workspace level. | AI feature availability is checked per role and per feature type at invocation time. | Policy toggle can disable `translate` for `commenter` while keeping `summarize` enabled, enforced immediately. |
 | FR-UM-05 | Graceful unauthorized behavior | User attempts forbidden action from UI or API. | System denies action with clear, non-destructive feedback and no partial state mutation. | Unauthorized edit attempts return explicit error and leave document state unchanged. |
 | FR-UM-06 | Security-relevant audit logging | Privileged actions occur (share changes, role changes, AI policy changes). | System records actor, target, timestamp, action type, and result. | Audit query returns complete event entries for all privileged actions in the selected period. |
+
 
 ## 1.3 Non-Functional Requirements
 
@@ -190,28 +192,29 @@ Collaborative Document Editor with AI Writing Assistant
 
 | User Story | Functional Requirements | Architecture Components |
 |---|---|---|
-| US-01 | FR-COL-04, FR-COL-01 | AC-01, AC-02, AC-03, AC-10 |
-| US-02 | FR-COL-01, FR-COL-03 | AC-01, AC-02, AC-03 |
-| US-03 | FR-DOC-03, FR-DOC-02 | AC-01, AC-05, AC-06, AC-10, AC-11 |
-| US-04 | FR-AI-01, FR-AI-02 | AC-01, AC-04, AC-08, AC-09 |
-| US-05 | FR-AI-01, FR-AI-02, FR-AI-05 | AC-01, AC-04, AC-07, AC-08, AC-09 |
-| US-06 | FR-AI-01, FR-AI-02 | AC-01, AC-04, AC-08, AC-09 |
-| US-07 | FR-AI-03, FR-AI-02 | AC-01, AC-04, AC-08 |
-| US-08 | FR-DOC-04, FR-UM-02 | AC-04, AC-05, AC-07 |
-| US-09 | FR-DOC-05, FR-DOC-06 | AC-04, AC-05, AC-11, AC-12 |
-| US-10 | FR-AI-06, FR-UM-06 | AC-04, AC-08, AC-12 |
-| US-11 | FR-UM-04, FR-AI-05, FR-UM-05 | AC-01, AC-04, AC-07, AC-08 |
-| US-12 | FR-UM-04, FR-UM-06 | AC-04, AC-07, AC-12 |
-| US-13 | FR-UM-02, FR-UM-05 | AC-01, AC-04, AC-07 |
+| US-01: Offline edit sync after reconnection | FR-COL-04: Offline editing and resynchronization; FR-COL-01: Simultaneous editing with eventual consistency | AC-01: Web Editor Client; AC-02: Real-Time Collaboration Service; AC-03: Sync Engine (CRDT/OT); AC-10: Presence/Event Channel |
+| US-02: Predictable concurrent paragraph merge | FR-COL-01: Simultaneous editing with eventual consistency; FR-COL-03: Overlapping-edit conflict handling | AC-01: Web Editor Client; AC-02: Real-Time Collaboration Service; AC-03: Sync Engine (CRDT/OT) |
+| US-03: Revert to a previous version during active editing | FR-DOC-03: Safe revert during active collaboration; FR-DOC-02: Version snapshoting | AC-01: Web Editor Client; AC-05: Document Service; AC-06: Versioning Service; AC-10: Presence/Event Channel; AC-11: Document and Version Store |
+| US-04: Paragraph summarization on demand | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-08: AI Orchestrator Service; AC-09: LLM Provider Adapter |
+| US-05: Section translation for multilingual collaboration | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context; FR-AI-05: Role and quota enforcement | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-08: AI Orchestrator Service; AC-09: LLM Provider Adapter |
+| US-06: AI outline restructuring | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-08: AI Orchestrator Service; AC-09: LLM Provider Adapter |
+| US-07: Partial acceptance of AI rewrite | FR-AI-03: Partial acceptance and manual refinement; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-08: AI Orchestrator Service |
+| US-08: Read-only document sharing | FR-DOC-04: Sharing and access control grants; FR-UM-02: Role-based authorization matrix | AC-04: Backend API Layer; AC-05: Document Service; AC-07: Identity and Access Service |
+| US-09: Export with AI change trail | FR-DOC-05: Export in common formats; FR-DOC-06: Export with AI change trace option | AC-04: Backend API Layer; AC-05: Document Service; AC-11: Document and Version Store; AC-12: Audit and Activity Log Service |
+| US-10: Review AI interaction history | FR-AI-06: AI interaction history; FR-UM-06: Security-relevant audit logging | AC-04: Backend API Layer; AC-08: AI Orchestrator Service; AC-12: Audit and Activity Log Service |
+| US-11: AI policy enforcement by role | FR-UM-04: Fine-grained AI permissions by role; FR-AI-05: Role and quota enforcement; FR-UM-05: Graceful unauthorized behavior | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-08: AI Orchestrator Service |
+| US-12: Configure AI features by role | FR-UM-04: Fine-grained AI permissions by role; FR-UM-06: Security-relevant audit logging | AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-12: Audit and Activity Log Service |
+| US-13: Graceful handling of forbidden edits | FR-UM-02: Role-based authorization matrix; FR-UM-05: Graceful unauthorized behavior | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service |
 
 ### 1.5.3 Requirement Coverage to Architecture Components
 
-| Requirement IDs | Mapped Architecture Components |
+| Requirement Titles | Mapped Architecture Components |
 |---|---|
-| FR-COL-HL, FR-COL-01, FR-COL-02, FR-COL-03, FR-COL-04, FR-COL-05 | AC-01, AC-02, AC-03, AC-10 |
-| FR-AI-HL, FR-AI-01, FR-AI-02, FR-AI-03, FR-AI-04, FR-AI-05, FR-AI-06 | AC-01, AC-04, AC-07, AC-08, AC-09, AC-12 |
-| FR-DOC-HL, FR-DOC-01, FR-DOC-02, FR-DOC-03, FR-DOC-04, FR-DOC-05, FR-DOC-06 | AC-01, AC-04, AC-05, AC-06, AC-10, AC-11, AC-12 |
-| FR-UM-HL, FR-UM-01, FR-UM-02, FR-UM-03, FR-UM-04, FR-UM-05, FR-UM-06 | AC-01, AC-04, AC-07, AC-12 |
+| FR-COL-HL: Multi-user real-time co-editing capability; FR-COL-01: Simultaneous editing with eventual consistency; FR-COL-02: Presence awareness; FR-COL-03: Overlapping-edit conflict handling; FR-COL-04: Offline editing and resynchronization; FR-COL-05: Session bootstrap consistency | AC-01: Web Editor Client; AC-02: Real-Time Collaboration Service; AC-03: Sync Engine (CRDT/OT); AC-10: Presence/Event Channel |
+| FR-AI-HL: In-context AI assistance capability; FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context; FR-AI-03: Partial acceptance and manual refinement; FR-AI-04: Async status and cancellation; FR-AI-05: Role and quota enforcement; FR-AI-06: AI interaction history | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-08: AI Orchestrator Service; AC-09: LLM Provider Adapter; AC-12: Audit and Activity Log Service |
+| FR-DOC-HL: Full document lifecycle management capability; FR-DOC-01: Document creation and metadata initialization; FR-DOC-02: Version snapshoting; FR-DOC-03: Safe revert during active collaboration; FR-DOC-04: Sharing and access control grants; FR-DOC-05: Export in common formats; FR-DOC-06: Export with AI change trace option | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-05: Document Service; AC-06: Versioning Service; AC-10: Presence/Event Channel; AC-11: Document and Version Store; AC-12: Audit and Activity Log Service |
+| FR-UM-HL: Authentication, authorization, and session management capability; FR-UM-01: User authentication; FR-UM-02: Role-based authorization matrix; FR-UM-03: Session lifecycle handling; FR-UM-04: Fine-grained AI permissions by role; FR-UM-05: Graceful unauthorized behavior; FR-UM-06: Security-relevant audit logging | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-12: Audit and Activity Log Service |
+| FR-VC-HL, FR-VC-01, FR-VC-02, FR-VC-03, FR-VC-04, FR-VC-05, FR-VC-06: Git-like version control requirement set (detailed short titles are not defined elsewhere in this document) | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-06: Versioning Service; AC-07: Identity and Access Service; AC-11: Document and Version Store; AC-12: Audit and Activity Log Service |
 
 ### Traceability Completeness Check
 - Every user story (`US-01` to `US-13`) maps to one or more functional requirements.

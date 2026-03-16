@@ -1,0 +1,29 @@
+flowchart TB
+    root[SWE-midterm/]
+
+    root --> apps[apps/]
+    root --> packages[packages/]
+    root --> infrastructure[infrastructure/]
+    root --> docs[docs/]
+    root --> tests[tests/]
+
+    apps --> web[web/<br/>React SPA, editor UI, AI UX]
+    apps --> api[api/<br/>REST and SSE application,<br/>authz, documents, sharing]
+    apps --> collab[collab/<br/>WebSocket sync service,<br/>presence, reconnect logic]
+    apps --> aiworker[ai-worker/<br/>Prompt execution, quotas,<br/>suggestion processing]
+
+    packages --> contracts[contracts/<br/>API schemas, events,<br/>validation types]
+    packages --> editorcore[editor-core/<br/>Shared document model,<br/>operation codecs, diff helpers]
+    packages --> ui[ui/<br/>Reusable frontend components]
+    packages --> config[config/<br/>Prompt templates, env schema,<br/>feature flags]
+    packages --> testkit[testkit/<br/>Mocks, fixtures,<br/>provider stubs]
+
+    infrastructure --> docker[docker/<br/>Local dev stack]
+    infrastructure --> terraform[terraform/<br/>Cloud resources,<br/>secret references]
+    infrastructure --> monitoring[monitoring/<br/>Dashboards, alerts,<br/>tracing]
+
+    docs --> architecture[architecture/<br/>C4 diagrams, data model,<br/>architecture narrative]
+
+    tests --> e2e[e2e/<br/>Browser and collaboration scenarios]
+    tests --> integration[integration/<br/>API, DB, queue, AI worker flows]
+    tests --> performance[performance/<br/>Latency and load tests]

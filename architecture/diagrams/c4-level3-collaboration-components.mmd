@@ -1,0 +1,36 @@
+flowchart LR
+    client[Web Editor Client]
+    api[API Application / AuthZ]
+    postgres[(PostgreSQL)]
+    redis[(Redis)]
+    object[(Object Storage)]
+
+    subgraph collab[Collaboration Service Container]
+        gateway[Session Gateway<br/>WebSocket handshake, join, leave, heartbeats]
+        authz[Access Verifier<br/>Validate session ticket and effective role]
+        bootstrap[Bootstrap Loader<br/>Fetch latest head snapshot and room state]
+        intake[Operation Intake<br/>Normalize ops and reject malformed payloads]
+        resync[Offline Resync Coordinator<br/>Deduplicate replayed ops and recover after reconnect]
+        sync[CRDT Sync Engine<br/>Merge concurrent edits and converge state]
+        presence[Presence Manager<br/>Track cursor, selection, online state]
+        broadcast[Event Broadcaster<br/>Fan-out ops, presence, reload, AI markers]
+        checkpoint[Checkpoint Publisher<br/>Trigger autosave and version snapshots]
+    end
+
+    client <--> |Join room, send ops, presence, receive acks| gateway
+    gateway --> authz
+    authz -->|Validate ACL and session| api
+    gateway --> bootstrap
+    bootstrap -->|Load head state and metadata| postgres
+    bootstrap -->|Load large snapshot blobs| object
+    gateway --> intake
+    intake --> resync
+    resync -->|Track last acked op and replay window| redis
+    resync --> sync
+    gateway --> presence
+    presence --> broadcast
+    sync -->|Ephemeral room state coordination| redis
+    sync --> broadcast
+    sync --> checkpoint
+    checkpoint -->|Request durable checkpoint / version creation| api
+    broadcast -->|Ops, presence, refresh events| client
