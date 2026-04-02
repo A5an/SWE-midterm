@@ -5,27 +5,48 @@ Collaborative Document Editor with AI Writing Assistant
 
 This document builds on [Part1_Requirements_Engineering.md](../Part1_Requirements_Engineering.md). The architecture follows the C4 model at the System Context, Container, and Component levels, then covers feature breakdown, AI integration, API design, authorization, communication, code structure, data model, and architecture decision records.
 
-Standalone Mermaid sources for every diagram in this document are stored in `architecture/diagrams/`.
+Every diagram in this report includes an embedded Mermaid source block and a rendered image. Standalone Mermaid source files are also stored in `architecture/diagrams/`.
 
 ## 2.1 C4 Architecture
 
 ### 2.1.1 Top Architectural Drivers
 
-The highest-impact drivers from the requirements are:
+The architecture is ranked by both functional and quality drivers from Part 1:
 
-1. Simultaneous editing with eventual consistency (`FR-COL-01`)
-2. Offline editing and resynchronization (`FR-COL-04`)
-3. AI invocation from explicit user intent (`FR-AI-01`)
-4. Overlapping-edit conflict handling (`FR-COL-03`)
-5. Version snapshoting (`FR-DOC-02`)
-6. Document creation and metadata initialization (`FR-DOC-01`)
-7. Safe revert during active collaboration (`FR-DOC-03`)
+| Rank | Driver | Why it is high priority | Architecture impact |
+|---|---|---|---|
+| 1 | Real-time co-edit latency and convergence (`FR-COL-01`, `NFR-LAT-01`) | The core product value is live collaboration; delayed or divergent edits break trust immediately. | Push-based sync service, CRDT merge engine, in-memory room state in Redis, and client-side immediate local apply. |
+| 2 | Overlapping edit conflict handling (`FR-COL-03`) | Concurrent same-region edits are common in shared drafting and must never silently lose content. | Deterministic merge policy in collaboration components, conflict suggestion path, and replay-safe operation pipeline. |
+| 3 | Resilience and offline recovery (`FR-COL-04`, `NFR-AVL-02`, `NFR-AVL-03`) | Users must keep writing during transient failures and reconnect safely. | Client offline queue, reconnect replay coordinator, duplicate-op suppression, and fast session bootstrap path. |
+| 4 | Privacy and authorization boundaries (`FR-UM-02`, `FR-AI-05`, `NFR-SEC-01`, `NFR-SEC-03`) | Documents can be sensitive and AI calls cross trust boundaries to third-party providers. | Dedicated authz checks in API and collaboration paths, scoped AI context by default, TLS everywhere, and auditable request flow. |
+| 5 | AI responsiveness and graceful degradation (`FR-AI-01`, `FR-AI-04`, `NFR-LAT-02`, `NFR-AVL-04`) | AI is valuable but cannot block writing; users need visible progress and safe failure behavior. | Async AI worker, queue-backed execution, SSE status stream, cancel support, and fail-fast provider outage handling. |
+| 6 | Version safety and history integrity (`FR-DOC-02`, `FR-DOC-03`) | Teams need recoverability and accountability during active collaboration. | Append-only version store, revert-as-new-head model, and collaboration reload event on revert. |
+| 7 | System scale growth (`NFR-SCL-01`, `NFR-SCL-02`) | Collaboration and AI usage can grow quickly across many documents and tenants. | Horizontally scalable stateless API/collab nodes, shared contracts package, and split services (`api`, `collab`, `ai-worker`). |
 
-These drivers push us toward a real-time editing design with a separate background AI worker, version history that is not changed later, clear permission checks, and stored records about each user or AI action.
+Because this ranking includes both UX-critical latency/reliability and governance/privacy drivers, the chosen architecture is intentionally split between low-latency collaboration paths and asynchronous, policy-guarded AI/data workflows.
 
 ### 2.1.2 Level 1 - System Context Diagram
 
 The system context shows the collaborative editor as a single product boundary. The primary external actors are collaborators and workspace administrators. The only external systems that are essential at this level are the identity provider for authentication and the third-party LLM provider used to generate AI suggestions.
+
+Mermaid source:
+
+```mermaid
+flowchart LR
+    collaborator[Collaborator<br/>Editor / Commenter / Viewer]
+    admin[Workspace Admin]
+    idp[External Identity Provider<br/>OIDC / SAML]
+    llm[Third-Party LLM Provider<br/>Inference API]
+
+    subgraph system[Collaborative Document Editor with AI Writing Assistant]
+        platform[System Under Design]
+    end
+
+    collaborator -->|Create, edit, comment, export, request AI help| platform
+    admin -->|Manage members, sharing, AI policy, quotas, audit| platform
+    platform -->|Authenticate users and validate sessions| idp
+    platform -->|Send scoped prompts and receive completions| llm
+```
 
 ![Level 1 System Context Diagram](rendered/c4-level1-system-context.svg)
 
@@ -35,7 +56,44 @@ This level answers the C4 question "what does the system interact with?" Editing
 
 The container view breaks the system into the main running parts. The browser client handles the editor UI, local state, offline storage, and AI suggestion display. The API app handles normal backend actions like documents, sharing, versions, and permissions. A separate collaboration service handles live syncing and presence. AI runs in a background worker so a slow AI request does not block typing.
 
-![Level 2 Container Diagram](rendered/c4-level2-container.svg)
+Mermaid source:
+
+```mermaid
+flowchart LR
+    user[Collaborator / Admin]
+    idp[External Identity Provider<br/>OIDC / SAML]
+    llm[Third-Party LLM Provider<br/>LLM API]
+
+    subgraph system[Collaborative Document Editor with AI Writing Assistant]
+        web[Web Editor SPA<br/>React + TypeScript + TipTap/Yjs + IndexedDB<br/>Rich-text editing, local state, offline queue, AI UX]
+        api[API Application<br/>NestJS + TypeScript REST/SSE<br/>Document CRUD, sharing, versions, authz, AI/job APIs]
+        collab[Collaboration Service<br/>Node.js + Hocuspocus/Yjs over WebSocket<br/>Live sync, presence, bootstrap, reconnect]
+        ai[AI Orchestrator Worker<br/>Node.js + BullMQ<br/>Prompt assembly, quotas, model routing, suggestion artifacts]
+        postgres[(PostgreSQL<br/>Users, documents, permissions, versions,<br/>AI metadata, audit events)]
+        redis[(Redis<br/>Presence, room cache, pub/sub,<br/>AI job queue)]
+        object[(Object Storage<br/>Version snapshots, exports,<br/>large AI suggestion payloads)]
+    end
+
+    user -->|HTTPS| web
+    web -->|REST/JSON + SSE| api
+    web <--> |WebSocket ops, presence, acks| collab
+
+    api -->|OIDC redirect / token validation| idp
+    api -->|SQL| postgres
+    api -->|Cache, pub/sub, job enqueue| redis
+    api -->|Read and write snapshots / exports| object
+
+    collab -->|Load head state / checkpoint metadata| postgres
+    collab -->|Presence fan-out / room coordination| redis
+    collab -->|Read and write large checkpoints| object
+
+    ai -->|Dequeue jobs / publish completion| redis
+    ai -->|Read document context / persist status| postgres
+    ai -->|Store suggestion payloads| object
+    ai -->|HTTPS prompt / response| llm
+```
+
+![Level 2 Container Diagram](rendered/c4-level2-container.png)
 
 The technology choices are fairly practical. The web client uses TypeScript, TipTap/ProseMirror, and Yjs for rich-text editing and shared editing state. The API and worker also use TypeScript so shared types and validation rules are easier to reuse. Redis handles short-term data like presence, room state, and AI job queues, while PostgreSQL is the main database for users, documents, permissions, versions, AI records, and audit logs.
 
@@ -43,7 +101,48 @@ The technology choices are fairly practical. The web client uses TypeScript, Tip
 
 The collaboration service is the most sensitive part of the architecture because it directly handles simultaneous editing, offline recovery, and predictable handling of overlapping edits. Its internal parts are separated so session handling, merge logic, replay logic, presence, and version checkpoint creation can be changed more easily later.
 
-![Level 3 Collaboration Service Component Diagram](rendered/c4-level3-collaboration-components.svg)
+Mermaid source:
+
+```mermaid
+flowchart LR
+    client[Web Editor Client]
+    api[API Application / AuthZ]
+    postgres[(PostgreSQL)]
+    redis[(Redis)]
+    object[(Object Storage)]
+
+    subgraph collab[Collaboration Service Container]
+        gateway[Session Gateway<br/>WebSocket handshake, join, leave, heartbeats]
+        authz[Access Verifier<br/>Validate session ticket and effective role]
+        bootstrap[Bootstrap Loader<br/>Fetch latest head snapshot and room state]
+        intake[Operation Intake<br/>Normalize ops and reject malformed payloads]
+        resync[Offline Resync Coordinator<br/>Deduplicate replayed ops and recover after reconnect]
+        sync[CRDT Sync Engine<br/>Merge concurrent edits and converge state]
+        presence[Presence Manager<br/>Track cursor, selection, online state]
+        broadcast[Event Broadcaster<br/>Fan-out ops, presence, reload, AI markers]
+        checkpoint[Checkpoint Publisher<br/>Trigger autosave and version snapshots]
+    end
+
+    client <--> |Join room, send ops, presence, receive acks| gateway
+    gateway --> authz
+    authz -->|Validate ACL and session| api
+    gateway --> bootstrap
+    bootstrap -->|Load head state and metadata| postgres
+    bootstrap -->|Load large snapshot blobs| object
+    gateway --> intake
+    intake --> resync
+    resync -->|Track last acked op and replay window| redis
+    resync --> sync
+    gateway --> presence
+    presence --> broadcast
+    sync -->|Ephemeral room state coordination| redis
+    sync --> broadcast
+    sync --> checkpoint
+    checkpoint -->|Request durable checkpoint / version creation| api
+    broadcast -->|Ops, presence, refresh events| client
+```
+
+![Level 3 Collaboration Service Component Diagram](rendered/c4-level3-collaboration-component.png)
 
 Two design decisions are important here. First, the merge engine uses a CRDT (Conflict-free Replicated Data Type, a way to merge edits safely) so disconnected clients can keep working and still end up with the same final document. Second, version checkpoint creation is kept outside the merge engine, so saving versions does not slow down the live editing path. That separation matters for `FR-COL-01`, `FR-COL-04`, `FR-COL-03`, and the document versioning requirements.
 
@@ -388,6 +487,40 @@ Using multiple repos would reduce CI scope for each service, but it would make s
 
 ### 2.3.2 Repository Structure Diagram
 
+Mermaid source:
+
+```mermaid
+flowchart TB
+    root[SWE-midterm/]
+
+    root --> apps[apps/]
+    root --> packages[packages/]
+    root --> infrastructure[infrastructure/]
+    root --> docs[docs/]
+    root --> tests[tests/]
+
+    apps --> web[web/<br/>React SPA, editor UI, AI UX]
+    apps --> api[api/<br/>REST and SSE application,<br/>authz, documents, sharing]
+    apps --> collab[collab/<br/>WebSocket sync service,<br/>presence, reconnect logic]
+    apps --> aiworker[ai-worker/<br/>Prompt execution, quotas,<br/>suggestion processing]
+
+    packages --> contracts[contracts/<br/>API schemas, events,<br/>validation types]
+    packages --> editorcore[editor-core/<br/>Shared document model,<br/>operation codecs, diff helpers]
+    packages --> ui[ui/<br/>Reusable frontend components]
+    packages --> config[config/<br/>Prompt templates, env schema,<br/>feature flags]
+    packages --> testkit[testkit/<br/>Mocks, fixtures,<br/>provider stubs]
+
+    infrastructure --> docker[docker/<br/>Local dev stack]
+    infrastructure --> terraform[terraform/<br/>Cloud resources,<br/>secret references]
+    infrastructure --> monitoring[monitoring/<br/>Dashboards, alerts,<br/>tracing]
+
+    docs --> architecture[architecture/<br/>C4 diagrams, data model,<br/>architecture narrative]
+
+    tests --> e2e[e2e/<br/>Browser and collaboration scenarios]
+    tests --> integration[integration/<br/>API, DB, queue, AI worker flows]
+    tests --> performance[performance/<br/>Latency and load tests]
+```
+
 ![Repository Structure Diagram](rendered/repository-structure.svg)
 
 ### 2.3.3 Directory Layout
@@ -466,6 +599,174 @@ AI integration should be tested mostly with provider stubs and recorded fixtures
 ## 2.4 Data Model
 
 ### 2.4.1 Entity-Relationship Diagram
+
+Mermaid source:
+
+```mermaid
+erDiagram
+    USER {
+        uuid id PK
+        string email
+        string display_name
+        string status
+        datetime created_at
+    }
+
+    WORKSPACE {
+        uuid id PK
+        string name
+        uuid owner_user_id FK
+        int ai_budget_monthly_tokens
+        datetime created_at
+    }
+
+    MEMBERSHIP {
+        uuid id PK
+        uuid workspace_id FK
+        uuid user_id FK
+        string workspace_role
+        datetime joined_at
+    }
+
+    TEAM {
+        uuid id PK
+        uuid workspace_id FK
+        string name
+        datetime created_at
+    }
+
+    TEAM_MEMBERSHIP {
+        uuid id PK
+        uuid team_id FK
+        uuid user_id FK
+        datetime joined_at
+    }
+
+    DOCUMENT {
+        uuid id PK
+        uuid workspace_id FK
+        uuid owner_user_id FK
+        string title
+        string head_storage_key
+        int current_version_no
+        string status
+        datetime created_at
+        datetime updated_at
+    }
+
+    DOCUMENT_VERSION {
+        uuid id PK
+        uuid document_id FK
+        int version_no
+        uuid based_on_version_id FK
+        uuid created_by_user_id FK
+        string storage_key
+        string change_summary
+        boolean is_revert
+        datetime created_at
+    }
+
+    DOCUMENT_PERMISSION {
+        uuid id PK
+        uuid document_id FK
+        string principal_type
+        uuid principal_id
+        string permission_level
+        datetime expires_at
+        uuid granted_by_user_id FK
+    }
+
+    SHARE_LINK {
+        uuid id PK
+        uuid document_id FK
+        string token_hash
+        string permission_level
+        datetime expires_at
+        int max_uses
+    }
+
+    COLLAB_SESSION {
+        uuid id PK
+        uuid document_id FK
+        uuid user_id FK
+        string client_instance_id
+        string last_ack_op_id
+        string last_state_vector
+        datetime connected_at
+        datetime disconnected_at
+    }
+
+    AI_REQUEST {
+        uuid id PK
+        uuid document_id FK
+        uuid requested_by_user_id FK
+        uuid base_version_id FK
+        string feature_type
+        string scope_type
+        int selection_start
+        int selection_end
+        string status
+        string model_name
+        int input_tokens
+        int output_tokens
+        datetime created_at
+    }
+
+    AI_SUGGESTION {
+        uuid id PK
+        uuid ai_request_id FK
+        string patch_format
+        string apply_status
+        uuid applied_version_id FK
+        datetime resolved_at
+    }
+
+    SUGGESTION_ACTION {
+        uuid id PK
+        uuid suggestion_id FK
+        uuid acted_by_user_id FK
+        string action_type
+        string accepted_ranges_json
+        datetime acted_at
+    }
+
+    AUDIT_EVENT {
+        uuid id PK
+        uuid workspace_id FK
+        uuid actor_user_id FK
+        uuid document_id FK
+        string action_type
+        string entity_type
+        string entity_id
+        string metadata_json
+        datetime created_at
+    }
+
+    USER ||--o{ MEMBERSHIP : joins
+    WORKSPACE ||--o{ MEMBERSHIP : contains
+    WORKSPACE ||--o{ TEAM : contains
+    USER ||--o{ TEAM_MEMBERSHIP : belongs_to
+    TEAM ||--o{ TEAM_MEMBERSHIP : includes
+    WORKSPACE ||--o{ DOCUMENT : owns
+    USER ||--o{ DOCUMENT : creates
+    DOCUMENT ||--o{ DOCUMENT_VERSION : has
+    USER ||--o{ DOCUMENT_VERSION : creates
+    DOCUMENT ||--o{ DOCUMENT_PERMISSION : shares_with
+    USER ||--o{ DOCUMENT_PERMISSION : may_receive
+    TEAM ||--o{ DOCUMENT_PERMISSION : may_receive
+    DOCUMENT ||--o{ SHARE_LINK : publishes
+    DOCUMENT ||--o{ COLLAB_SESSION : has
+    USER ||--o{ COLLAB_SESSION : opens
+    DOCUMENT ||--o{ AI_REQUEST : receives
+    USER ||--o{ AI_REQUEST : invokes
+    DOCUMENT_VERSION ||--o{ AI_REQUEST : anchors
+    AI_REQUEST ||--o{ AI_SUGGESTION : produces
+    AI_SUGGESTION ||--o{ SUGGESTION_ACTION : records
+    USER ||--o{ SUGGESTION_ACTION : performs
+    WORKSPACE ||--o{ AUDIT_EVENT : logs
+    USER ||--o{ AUDIT_EVENT : triggers
+    DOCUMENT ||--o{ AUDIT_EVENT : references
+```
 
 ![Entity Relationship Diagram](rendered/data-model-er.svg)
 
