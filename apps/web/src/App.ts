@@ -1,74 +1,13 @@
 import "./App.css";
-
-interface CreateDocumentRequest {
-  workspaceId: string;
-  title: string;
-  templateId: null;
-  initialContent: {
-    type: "doc";
-    content: Array<{
-      type: "paragraph";
-      text: string;
-    }>;
-  };
-}
-
-interface DocumentMetadataResponse {
-  documentId: string;
-  workspaceId: string;
-  title: string;
-  ownerRole: "owner";
-  currentVersionId: string;
-  createdAt: string;
-}
-
-interface DocumentDetailResponse extends DocumentMetadataResponse {
-  content: {
-    type: "doc";
-    content: Array<{
-      type: "paragraph";
-      text: string;
-    }>;
-  };
-  updatedAt: string;
-}
-
-interface ApiErrorEnvelope {
-  error: {
-    code: string;
-    message: string;
-    retryable: boolean;
-    requestId: string;
-  };
-}
+import {
+  isApiErrorEnvelope,
+  isDocumentDetailResponse,
+  isDocumentMetadataResponse,
+  type CreateDocumentRequest,
+  type DocumentDetailResponse
+} from "@swe-midterm/contracts";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const isApiErrorEnvelope = (value: unknown): value is ApiErrorEnvelope =>
-  isRecord(value) &&
-  isRecord(value.error) &&
-  typeof value.error.code === "string" &&
-  typeof value.error.message === "string";
-
-const isDocumentMetadataResponse = (value: unknown): value is DocumentMetadataResponse =>
-  isRecord(value) &&
-  typeof value.documentId === "string" &&
-  typeof value.workspaceId === "string" &&
-  typeof value.title === "string" &&
-  value.ownerRole === "owner" &&
-  typeof value.currentVersionId === "string" &&
-  typeof value.createdAt === "string";
-
-const isDocumentDetailResponse = (value: unknown): value is DocumentDetailResponse => {
-  if (!isDocumentMetadataResponse(value)) {
-    return false;
-  }
-  const detail = value as DocumentDetailResponse;
-  return isRecord(detail.content) && Array.isArray(detail.content.content) && typeof detail.updatedAt === "string";
-};
 
 const readJson = async (response: Response): Promise<unknown> => {
   const text = await response.text();

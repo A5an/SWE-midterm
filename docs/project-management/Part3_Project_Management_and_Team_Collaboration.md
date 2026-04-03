@@ -7,6 +7,7 @@ Collaborative Document Editor with AI Writing Assistant
 - Team size: 3 engineers
 - Tooling: Linear for issue tracking, GitHub for code + PRs, group chat + Google Meet for coordination
 - This document covers Assignment Part 3 (`3.1` to `3.5`)
+- This document distinguishes **midterm PoC reality** (lightweight process) from the **final project target process** (more structured).
 
 ## 3.1 Team Structure & Ownership
 
@@ -54,9 +55,12 @@ When team members disagree:
 
 ### Branching Strategy
 
-Even for a PoC, branching is recommended. Reason: it protects `main`, keeps history reviewable, and gives visible collaboration evidence for grading.
+Midterm PoC reality (what we actually did):
 
-Strategy:
+- We did not use strict branching for every tiny change.
+- Because the PoC scope was small and fast-moving, some changes were integrated directly after quick team checks.
+
+Final-project policy (what we will enforce after):
 
 - Protected `main` branch
 - Short-lived feature branches per Linear task
@@ -65,15 +69,21 @@ Strategy:
   - `fix/LIN-231-error-envelope`
   - `chore/LIN-310-readme-demo`
 - Merge policy: squash-merge after review and passing checks
-- Direct pushes to `main`: not allowed except emergency hotfix with team agreement
+- Direct pushes to `main`: avoided except emergency hotfix with team agreement
 
-Why "no branching for PoC" is risky:
+Why this split is reasonable:
 
-- Increases chance of breaking the only runnable demo path.
-- Makes code review harder or impossible.
-- Reduces evidence of team collaboration in git history.
+- For the midterm PoC, full process overhead on every tiny change was overkill relative to scope.
+- For the final system (collab + AI + infra), strict branching and review become necessary due to higher complexity and risk.
 
 ### Code Review Process
+
+Midterm PoC reality:
+
+- Review was mostly synchronous and lightweight (pair checks, quick team validation in chat/meet).
+- For small PoC changes, we prioritized speed and integration testing over formal PR ceremony.
+
+Final-project policy:
 
 - Minimum 1 reviewer, not the author.
 - Any contract change (`packages/contracts`) requires review from both frontend and backend owners.
@@ -104,7 +114,7 @@ Task rules:
 
 ### Communication and Documentation
 
-- Group chat: quick async questions, blockers, handoffs.
+- Teams group chat: quick async questions, blockers, handoffs.
 - Google Meet: weekly planning + technical deep-dive sessions.
 - Linear is the source of truth for decisions and status:
   - Decision summary comment on each important ticket
@@ -114,12 +124,16 @@ This avoids losing key decisions in chat history.
 
 ## 3.3 Development Methodology
 
-Chosen approach: **Scrum-lite with 1-week iterations**.
+Chosen approach:
+
+- Midterm PoC phase: lightweight iterative testing with reduced ceremony.
+- Final implementation phase: **Scrum-lite with 1-week iterations**.
 
 Why this fits:
 
 - Team is small (3 people), so overhead must stay low.
-- Requirements and architecture are defined, but implementation details will still change.
+- During midterm, we were validating assumptions quickly, so strict process on every step was unnecessary.
+- During final implementation, requirements and architecture are larger and more coupled, so more structure is justified.
 - Weekly cadence is fast enough for course timelines and demos.
 
 Iteration structure:
@@ -156,16 +170,18 @@ Handling non-user-visible work:
 
 ## 3.5 Timeline and Milestones
 
-Timeline starts from **April 3, 2026** and runs through the end-of-semester delivery window.
+Midterm timeline starts on **April 3, 2026** and ends on **April 24, 2026** (last day before exams).
 
 | Milestone | Target Date | Scope | Verifiable acceptance criteria |
 |---|---|---|---|
-| M1 - Part 3 + PoC Hardening | April 10, 2026 | Finalize Part 3, ensure PoC demo path is stable | Part 3 document complete; root README added; `npm test` passes; demo script rehearsed |
-| M2 - Auth + Permissions Baseline | April 24, 2026 | Add auth stub and role checks for protected document actions | Unauthorized requests return expected `401/403`; role matrix tests exist; policy errors use standard envelope |
-| M3 - Collaboration MVP | May 8, 2026 | Two-user real-time editing + presence prototype | Two browser sessions sync edits in near real time; join/leave presence visible; reconnect scenario demonstrated |
-| M4 - AI Async Workflow MVP | May 22, 2026 | AI request lifecycle with queued/in-progress/completed states | AI request endpoint returns `202`; status updates reachable (SSE or polling fallback); accept/reject path works with stubbed model |
-| M5 - Versioning + Export + Risk Burn-Down | June 5, 2026 | Version history, revert-as-new-head, export skeleton, risk controls | Version list + revert endpoint functional; export job stub returns tracked status; top 3 risks reduced with evidence |
-| M6 - Final Stabilization + Defense Prep | June 12, 2026 | Documentation lock, demo rehearsal, oral defense preparation | All docs consistent with code; critical tests pass; each member can explain architecture decisions and change impact |
+| M1 - PoC Skeleton Ready | April 10, 2026 | Stable frontend-backend PoC path + core docs baseline | PoC runs locally; create/load flow demonstrated; Part 1-2 drafts aligned with code |
+| M2 - Midterm Packaging and Evidence | April 17, 2026 | Submission package hardening | Root README complete; diagrams and sources organized; demo script finalized |
+| M3 - Midterm Freeze | April 24, 2026 | Final pre-exam lock for midterm submission | All midterm deliverables consistent; no blocking contract mismatch; team oral walkthrough rehearsed |
+
+Final-phase plan (post-midterm period):
+
+- After midterm, we switch to stricter branching + review workflow for larger feature delivery.
+- Final milestones (collaboration MVP, AI async flow, versioning/export hardening) will be scheduled in the final-project planning update rather than fixed in this midterm document.
 
 Milestone governance rules:
 
