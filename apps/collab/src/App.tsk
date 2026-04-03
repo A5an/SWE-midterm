@@ -1,0 +1,87 @@
+import './App.css';
+
+export default function App() {
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="sidebar__logo">Docs</div>
+        <nav className="sidebar__nav">
+          <button className="nav-item nav-item--active">Document</button>
+          <button className="nav-item">Comments</button>
+          <button className="nav-item">History</button>
+          <button className="nav-item">Share</button>
+        </nav>
+      </aside>
+
+      <main className="main-content">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">SWE Midterm</p>
+            <h1>Google Docs Collaboration Prototype</h1>
+          </div>
+
+          <a
+            className="prototype-button"
+            href="https://www.figma.com/make/tbsOnAsDjx1nZdwi2JwDEc/Google-Docs-Prototype-Website--Community-?p=f"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open Figma Prototype
+          </a>
+        </header>
+
+        <section className="hero-card">
+          <div className="hero-copy">
+            <span className="badge">Live Design Reference</span>
+            <h2>Real-time collaborative editing experience</h2>
+            <p>
+              This frontend acts as the collaboration entry point for the project.
+              It presents the design direction and links directly to the interactive
+              prototype used for the UI and UX workflow.
+            </p>
+
+            <div className="hero-actions">
+              <a
+                className="primary-action"
+                href="https://www.figma.com/make/tbsOnAsDjx1nZdwi2JwDEc/Google-Docs-Prototype-Website--Community-?p=f"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View Prototype
+              </a>
+              <button className="secondary-action" type="button">
+                Collaboration Preview
+              </button>
+            </div>
+          </div>
+
+          <div className="preview-panel">
+            <div className="preview-toolbar">
+              <span className="dot" />
+              <span className="dot" />
+              <span className="dot" />
+            </div>
+
+            <div className="preview-document">
+              <h3>Untitled document</h3>
+              <p>
+                This area can later be replaced with the real collaborative editor,
+                comments panel, presence indicators, and CRDT-driven sync state.
+              </p>
+
+              <div className="fake-line long" />
+              <div className="fake-line medium" />
+              <div className="fake-line short" />
+
+              <div className="collab-users">
+                <span className="user-pill">Aya</span>
+                <span className="user-pill">Alaa</span>
+                <span className="user-pill">Team</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
