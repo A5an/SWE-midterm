@@ -170,18 +170,21 @@ Handling non-user-visible work:
 
 ## 3.5 Timeline and Milestones
 
-Midterm timeline starts on **April 3, 2026** and ends on **April 24, 2026** (last day before exams).
+Midterm submission deadline is **April 3, 2026** (today).  
+The timeline below covers the **post-midterm remainder of the semester** and defines dated milestones for the final phase.
 
 | Milestone | Target Date | Scope | Verifiable acceptance criteria |
 |---|---|---|---|
-| M1 - PoC Skeleton Ready | April 10, 2026 | Stable frontend-backend PoC path + core docs baseline | PoC runs locally; create/load flow demonstrated; Part 1-2 drafts aligned with code |
-| M2 - Midterm Packaging and Evidence | April 17, 2026 | Submission package hardening | Root README complete; diagrams and sources organized; demo script finalized |
-| M3 - Midterm Freeze | April 24, 2026 | Final pre-exam lock for midterm submission | All midterm deliverables consistent; no blocking contract mismatch; team oral walkthrough rehearsed |
+| F1 - Collaboration MVP | April 10, 2026 | Implement real-time session bootstrap, presence updates, and concurrent edit propagation in `apps/collab` + `apps/web` | Two browser clients join same document and see each other's presence and edits in real time; reconnect after brief disconnect restores sync without duplicate operations; integration test for join/edit/reconnect passes |
+| F2 - Auth, Roles, and Sharing | April 14, 2026 | Add authentication stub integration, role-based authorization checks, and document sharing APIs | Role matrix enforced for `owner/editor/commenter/viewer`; forbidden actions return standard `403` envelope; share grant/revoke endpoints pass contract and integration tests |
+| F3 - AI Async Flow and Policy Controls | April 18, 2026 | Implement async AI request lifecycle (`queued`, `in_progress`, `completed`, `failed`, `canceled`) with SSE updates and quota/policy checks | User can submit AI request and observe status stream; cancel path works; quota/role violation is rejected before provider call; worker and API integration tests pass using provider stub |
+| F4 - Versioning, Revert, and Export | April 21, 2026 | Implement immutable version snapshots, revert-as-new-head flow, and export with AI change trace option | Version list and fetch endpoints work; revert creates new head without deleting history; export artifact includes document content and AI-trace metadata when requested |
+| F5 - Final Quality Gate and Integration Freeze | April 24, 2026 | Lock feature scope, finalize docs, and prepare final presentation/demo package before exam period | CI runs unit + integration + e2e suites; architecture docs match implemented modules and API contracts; README runbook validated from clean clone; final demo rehearsal completed with evidence links |
 
-Final-phase plan (post-midterm period):
+Final-phase execution policy:
 
-- After midterm, we switch to stricter branching + review workflow for larger feature delivery.
-- Final milestones (collaboration MVP, AI async flow, versioning/export hardening) will be scheduled in the final-project planning update rather than fixed in this midterm document.
+- Stricter branching and review workflow applies for all final-phase milestones.
+- Each milestone must include evidence links (PRs, tests, demo artifacts) before closure.
 
 Milestone governance rules:
 
