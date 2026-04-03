@@ -7,7 +7,6 @@ Collaborative Document Editor with AI Writing Assistant
 - The product is a web application used by individuals and organizations.
 - Documents are shared in workspaces and can have multiple simultaneous editors.
 - AI features include rewrite, summarize, translate, and restructure.
-- This document covers only Assignment Part 1 (`1.1` to `1.5`).
 
 ## 1.1 Stakeholder Analysis
 

@@ -1,14 +1,5 @@
 # Part 3: Project Management & Team Collaboration
 
-## Project
-Collaborative Document Editor with AI Writing Assistant
-
-## Scope and Team Assumption
-- Team size: 3 engineers
-- Tooling: Linear for issue tracking, GitHub for code + PRs, group chat + Google Meet for coordination
-- This document covers Assignment Part 3 (`3.1` to `3.5`)
-- This document distinguishes **midterm PoC reality** (lightweight process) from the **final project target process** (more structured).
-
 ## 3.1 Team Structure & Ownership
 
 ### Ownership Model Decision

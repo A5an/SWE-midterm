@@ -1,10 +1,5 @@
 # Part 2: System Architecture
 
-## Project
-Collaborative Document Editor with AI Writing Assistant
-
-This document builds on [Part1_Requirements_Engineering.md](../requirements/Part1_Requirements_Engineering.md). The architecture follows the C4 model at the System Context, Container, and Component levels, then covers feature breakdown, AI integration, API design, authorization, communication, code structure, data model, and architecture decision records.
-
 Every diagram in this report includes an embedded Mermaid source block and a rendered image. Standalone Mermaid source files are also stored in `docs/architecture/diagrams/`.
 
 ## 2.1 C4 Architecture
