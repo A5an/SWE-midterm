@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Project Overview Video Script</title>
+  <style>
+    :root {
+      --bg: #f4efe8;
+      --paper: #fffdfa;
+      --text: #1f2530;
+      --muted: #596474;
+      --border: #d8d0c2;
+      --accent: #165d9c;
+      --accent-soft: rgba(22, 93, 156, 0.1);
+      --choice: #7c4a1b;
+      --shadow: 0 18px 48px rgba(31, 37, 48, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top, rgba(255, 255, 255, 0.7), transparent 28rem),
+        linear-gradient(180deg, #ebe4d7 0%, #f6f2ea 12rem, #f3efe8 100%);
+      color: var(--text);
+      font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      line-height: 1.65;
+    }
+
+    .page {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 3rem;
+    }
+
+    .hero,
+    .segment {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 2rem 2.2rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .hero h1 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(2rem, 4vw, 3rem);
+      line-height: 1.1;
+    }
+
+    .hero p {
+      margin: 0.5rem 0;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.9rem;
+      margin-top: 1.25rem;
+    }
+
+    .meta-card {
+      padding: 0.95rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #faf6ef;
+    }
+
+    .meta-card strong {
+      display: block;
+      margin-bottom: 0.3rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .legend {
+      margin-top: 1rem;
+      padding: 0.9rem 1rem;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      border-radius: 12px;
+    }
+
+    .segment {
+      padding: 1.35rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .time {
+      margin: 0 0 0.45rem;
+      color: var(--accent);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin: 0 0 0.85rem;
+      font-size: 1.35rem;
+      line-height: 1.2;
+    }
+
+    p {
+      margin: 0.7rem 0;
+    }
+
+    .label {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .say {
+      font-size: 1.03rem;
+    }
+
+    .choice {
+      margin-top: 0.9rem;
+      padding-top: 0.8rem;
+      border-top: 1px solid var(--border);
+      color: var(--choice);
+    }
+
+    .choice u {
+      text-decoration-thickness: 2px;
+      text-underline-offset: 0.18em;
+      text-decoration-color: var(--choice);
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      .page {
+        max-width: none;
+        padding: 0;
+      }
+
+      .hero,
+      .segment {
+        box-shadow: none;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>Project Overview Video Script</h1>
+      <p>1) the team responsibilities and contributions (~1-2min) 2) describe the most important design decisions using the schemes produced for your documentation (~5-6min) and 3) a proof of concept video with the system in action (~2-4min). <a href="./requirements-and-system-architecture.html">requirements-and-system-architecture.html</a>.</p>
+      <div class="meta">
+        <div class="meta-card">
+          <strong>Target Length</strong>
+          About 6 minutes
+        </div>
+        <div class="meta-card">
+          <strong>Speaking Style</strong>
+          Slow, steady, plain English
+        </div>
+        <div class="meta-card">
+          <strong>Note</strong>
+          Underlined lines mark design choices and the reason for them.
+        </div>
+      </div>
+      <div class="legend">
+        Read the “On screen” line as your navigation cue. Read the “Say” line out loud. Pause very briefly between sections.
+      </div>
+    </section>
+
+    <section class="segment">
+      <p class="time">0:00 - 0:30</p>
+      <h2>1. Opening and Report Structure</h2>
+      <p><span class="label">On screen:</span> Show the top of the combined HTML document, the title, and the table of contents.</p>
+      <p class="say"><span class="label">Say:</span> In this video, I will give a simple overview of our collaborative document editor with an AI writing assistant. The report has two parts. Part 1 explains what the system must do. Part 2 explains how we plan to build it. I will follow that order.</p>
+      <p class="choice"><u>We split the report into requirements first and architecture second because it is easier to judge the design after the goals are clear.</u></p>
+    </section>
+
+    <section class="segment">
+      <p class="time">0:30 - 1:15</p>
+      <h2>2. Project Scope and Stakeholders</h2>
+      <p><span class="label">On screen:</span> Scroll to Part 1, then show the scope and stakeholder analysis tables.</p>
+      <p class="say"><span class="label">Say:</span> The project is a web app for shared documents. Multiple users can edit at the same time, and the AI can help rewrite, summarize, translate, and restructure text. The stakeholder analysis matters because it shows which people shape the system and which features come from them.</p>
+      <p class="say"><span class="label">Say:</span> Workspace owners and admins drive permission controls, AI usage limits, cost reports, and admin rules. These features help control access, sharing, and spending.</p>
+      <p class="say"><span class="label">Say:</span> Security and compliance officers drive encryption, which means protected data, data minimization, which means sending only what is needed, retention limits, which means deleting old records on time, and audit logs, which means a record of important actions.</p>
+      <p class="say"><span class="label">Say:</span> Product and business stakeholders drive speed targets, simple screens, clear feature priority, and usage tracking so the team knows what people use and what the product costs.</p>
+      <p class="say"><span class="label">Say:</span> Support teams drive clear error messages, request IDs, which are case reference numbers, and action history for users and AI. These features make incidents easier to explain.</p>
+      <p class="say"><span class="label">Say:</span> Operations teams drive uptime targets, health checks, alerts, graceful failure, which means one problem should not break the whole system, and automatic scaling when load grows.</p>
+      <p class="say"><span class="label">Say:</span> The outside AI provider drives rate limits, backup behavior when the provider is slow or down, prompt rules, which are rules for how requests are written, and contract rules for safe data handling.</p>
+      <p class="choice"><u>Stakeholder analysis directly shapes the feature list, so each control in the system exists for a clear human reason, not just for technical style.</u></p>
+    </section>
+
+    <section class="segment">
+      <p class="time">1:15 - 1:45</p>
+      <h2>3. Functional Requirements</h2>
+      <p><span class="label">On screen:</span> Move through the four functional requirement sections: collaboration, AI assistant, document management, and user management.</p>
+      <p class="say"><span class="label">Say:</span> The requirements are grouped into four areas: collaboration, AI, documents, and users. Collaboration covers live editing, presence, conflicts, and offline sync. The AI assistant runs only when asked and returns suggestions. Document management covers creating, saving, versioning, sharing, and exporting. User management covers login, permissions, sessions, and AI policy checks.</p>
+      <p class="choice"><u>AI output is treated as a suggestion because users need control over what changes enter the final document.</u></p>
+    </section>
+
+    <section class="segment">
+      <p class="time">1:45 - 2:10</p>
+      <h2>4. Non-Functional Requirements</h2>
+      <p><span class="label">On screen:</span> Show the latency, scalability, availability, security, and usability tables.</p>
+      <p class="say"><span class="label">Say:</span> The next part explains quality targets. We set clear limits for edit delay, document load time, and AI response start time. We also define targets for scale, availability, security, and usability. These numbers matter because they turn broad goals like fast or secure into checks we can test.</p>
+    </section>
+
+    <section class="segment">
+      <p class="time">2:10 - 2:35</p>
+      <h2>5. User Stories and Traceability</h2>
+      <p><span class="label">On screen:</span> Show the user stories, then the traceability tables.</p>
+      <p class="say"><span class="label">Say:</span> After that, the report gives user stories, such as syncing offline edits, reviewing AI history, or sharing a document in read-only mode. The traceability section links each story to requirements and then to architecture components. This shows that each feature has both a user reason and a technical plan.</p>
+    </section>
+
+    <section class="segment">
+      <p class="time">2:35 - 3:15</p>
+      <h2>6. C4 Architecture Overview</h2>
+      <p><span class="label">On screen:</span> Move through the System Context, Container, and Collaboration Component diagrams.</p>
+      <p class="say"><span class="label">Say:</span> Part 2 starts with architecture. The first diagram shows the system boundary and outside services. The second breaks the platform into its main containers: web client, API, collaboration service, AI worker, and data stores. The third zooms into the collaboration service and shows sessions, merge logic, replay after reconnect, presence, and checkpoints.</p>
+      <p class="choice"><u>We separate the collaboration service from the AI worker because live typing must stay fast, while AI work can be slower and run in the background.</u></p>
+    </section>
+
+    <section class="segment">
+      <p class="time">3:15 - 4:00</p>
+      <h2>7. AI Integration and API Design</h2>
+      <p><span class="label">On screen:</span> Show the AI integration section, then the API style and endpoint tables.</p>
+      <p class="say"><span class="label">Say:</span> The AI design is careful and limited on purpose. By default, the system sends only the selected text and a small amount of nearby context to the AI provider. That reduces privacy risk, lowers cost, and makes responses faster. AI results appear as tracked suggestions with accept, reject, edit, and partial accept actions. The API then uses REST for normal data, WebSocket for live editing, and SSE for AI status updates.</p>
+      <p class="choice"><u>We use selection-first AI context because it lowers cost and protects private document content.</u></p>
+      <p class="choice"><u>We use REST, WebSocket, and SSE together because one protocol does not fit normal data actions, live editing, and long AI progress updates equally well.</u></p>
+    </section>
+
+    <section class="segment">
+      <p class="time">4:00 - 4:35</p>
+      <h2>8. Security, Authorization, and Communication</h2>
+      <p><span class="label">On screen:</span> Show the authentication and authorization section and the communication model section.</p>
+      <p class="say"><span class="label">Say:</span> Security and access control are central in this project. Owners, editors, commenters, and viewers do not have the same powers. AI use is also limited by role and policy. In the communication model, the document first loads through the API, then the client requests a collaboration session, and only after that does the live editing channel begin. This keeps access checks clear before live editing starts.</p>
+      <p class="choice"><u>Permission checks happen before AI requests and before collaboration sessions because sensitive content should not move through the system until access is confirmed.</u></p>
+    </section>
+
+    <section class="segment">
+      <p class="time">4:35 - 5:10</p>
+      <h2>9. Code Structure and Data Model</h2>
+      <p><span class="label">On screen:</span> Show the repository structure diagram, directory layout, testing structure, and data model diagram.</p>
+      <p class="say"><span class="label">Say:</span> The report then shows how the codebase is organized. Separate apps are planned for the web client, API, collaboration service, and AI worker. Shared packages hold contracts, editor logic, config, and test utilities. The data model shows how users, documents, versions, AI requests, suggestions, permissions, and audit records connect. It also shows that version history and AI history are saved, not hidden.</p>
+      <p class="choice"><u>Shared packages are used so request types, permission rules, and document structures stay consistent across services.</u></p>
+    </section>
+
+    <section class="segment">
+      <p class="time">5:10 - 6:00</p>
+      <h2>10. Architecture Decisions and Closing</h2>
+      <p><span class="label">On screen:</span> Show the ADR section and then scroll back slightly to the report summary area.</p>
+      <p class="say"><span class="label">Say:</span> The last part records the key design decisions. We chose CRDT-based collaboration so users can work at the same time and still recover well after disconnects. We chose asynchronous AI suggestions so users stay in control. We chose saved versions with revert-as-new-head so history is never destroyed. And we chose different protocols for different kinds of work. In short, this project balances live teamwork, AI assistance, safety, and clear structure.</p>
+      <p class="choice"><u>Revert creates a new version instead of overwriting the current one because the team needs a full history and a clear audit trail.</u></p>
+    </section>
+  </main>
+</body>
+</html>
