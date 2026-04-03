@@ -247,7 +247,7 @@ The system uses a mix of API styles because the interactions are different:
 | Method | Endpoint | Purpose | Success responses |
 |---|---|---|---|
 | `POST` | `/v1/documents` | Create a document with initial metadata and optional template content. | `201 Created` |
-| `GET` | `/v1/documents/{documentId}` | Fetch document metadata, the current version reference, and permissions summary. | `200 OK` |
+| `GET` | `/v1/documents/{documentId}` | Fetch document metadata plus the current content snapshot used by the editor. | `200 OK` |
 | `PATCH` | `/v1/documents/{documentId}` | Update mutable metadata such as title or status. | `200 OK` |
 | `DELETE` | `/v1/documents/{documentId}` | Soft-delete or archive a document. | `204 No Content` |
 | `GET` | `/v1/documents/{documentId}/versions` | List saved versions that are not changed later. | `200 OK` |
@@ -279,6 +279,29 @@ Example response:
   "ownerRole": "owner",
   "currentVersionId": "ver_001",
   "createdAt": "2026-03-16T11:25:00Z"
+}
+```
+
+Example response for document load:
+
+```json
+{
+  "documentId": "doc_456",
+  "workspaceId": "ws_123",
+  "title": "Q3 Product Brief",
+  "ownerRole": "owner",
+  "currentVersionId": "ver_001",
+  "createdAt": "2026-03-16T11:25:00Z",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "text": "Initial PoC content"
+      }
+    ]
+  },
+  "updatedAt": "2026-03-16T11:25:00Z"
 }
 ```
 
@@ -434,7 +457,38 @@ Clients distinguish the major AI states as follows:
 | AI failed due to provider or internal error | Final status becomes `failed`; `GET /v1/ai-requests/{id}` returns failure reason | Show error banner and allow retry. |
 | User exceeded quota or role policy | Immediate `403 Forbidden` or `429 Too Many Requests` with specific error code | Do not create a provider call; show policy/quota message. |
 
-### 2.2.4 Authentication & Authorization
+### 2.2.4 PoC Scope Mapping (Part 4 Alignment)
+
+The implemented Part 4 PoC currently covers only a focused API subset to validate architecture contracts and front-end/back-end wiring:
+
+Implemented in code:
+
+- `POST /v1/documents` returns `201 Created` with fields:
+  - `documentId`
+  - `workspaceId`
+  - `title`
+  - `ownerRole`
+  - `currentVersionId`
+  - `createdAt`
+- `GET /v1/documents/{documentId}` returns `200 OK` with the same metadata plus:
+  - `content`
+  - `updatedAt`
+- Error envelope contract is implemented for invalid routes and unknown documents:
+  - `error.code`
+  - `error.message`
+  - `error.retryable`
+  - `error.requestId`
+
+Intentionally deferred beyond Part 4 PoC:
+
+- Real-time collaboration channels (`/sessions`, WebSocket operation flow)
+- AI orchestration endpoints and SSE job-stream behavior
+- Authentication, authorization, and persistent data storage integrations
+- Export, sharing, and version-revert workflows
+
+This deferred scope is deliberate for Part 4 because the rubric asks for a minimal technical skeleton proving contract-correct frontend-backend communication.
+
+### 2.2.5 Authentication & Authorization
 
 Authentication is required because the system stores private documents, supports sharing, keeps version history, and AI calls cost money. The main user types are workspace admins, document owners, editors, commenters, viewers, and support or audit roles in managed setups.
 
@@ -456,7 +510,7 @@ Privacy considerations for third-party LLM use:
 - Encrypt all document and AI metadata in transit and at rest.
 - Keep full prompts and responses only for a short support window, then keep only small metadata needed for auditing.
 
-### 2.2.5 Communication Model
+### 2.2.6 Communication Model
 
 The communication model is real-time and push-based for editing, presence, and reconnect recovery. Polling alone would be simpler, but it cannot meet the collaboration latency targets or presence expectations. The trade-off is that the server must track more live connection state, and reconnect logic becomes more complex.
 
@@ -485,7 +539,21 @@ A monorepo is the best fit for this project. The team is likely small to medium-
 
 Using multiple repos would reduce CI scope for each service, but it would make shared message types harder to keep in sync and would likely create duplicate structure definitions. That extra overhead is not worth it for this project.
 
-### 2.3.2 Repository Structure Diagram
+### 2.3.2 Current PoC Implementation vs Target Structure
+
+To avoid architecture-code drift, this section explicitly separates what is implemented now (Part 4 PoC) from the full target structure planned for later milestones.
+
+| Scope | Status | Paths | Why it exists |
+|---|---|---|---|
+| Part 4 PoC (implemented) | Implemented and runnable | `apps/web`, `apps/api`, `packages/contracts`, `docs/architecture` | Proves frontend-backend communication and shared API contracts required by the assignment PoC rubric. |
+| Planned collaboration service | Placeholder scaffold only | `apps/collab` | Reserved for real-time sync and presence responsibilities documented in C4 and feature decomposition. |
+| Planned AI worker | Placeholder scaffold only | `apps/ai-worker` | Reserved for async AI request execution and provider orchestration. |
+| Planned shared packages | Placeholder scaffold only | `packages/editor-core`, `packages/ui`, `packages/config`, `packages/testkit` | Separates reusable domain logic, UI elements, config/templates, and test utilities to reduce coupling as scope grows. |
+| Planned infra and test suites | Placeholder scaffold only | `infrastructure/*`, `tests/*` | Reserves clear locations for deployment assets and cross-service testing stages as implementation expands. |
+
+All placeholder modules are intentionally non-functional in the PoC and are included to keep repository shape aligned with the architecture and team planning sections.
+
+### 2.3.3 Repository Structure Diagram
 
 Mermaid source:
 
@@ -523,9 +591,9 @@ flowchart TB
 
 ![Repository Structure Diagram](rendered/repository-structure.svg)
 
-### 2.3.3 Directory Layout
+### 2.3.4 Directory Layout
 
-Recommended layout:
+Target semester layout:
 
 ```text
 SWE-midterm/
@@ -564,7 +632,7 @@ Directory responsibilities:
 
 API route definitions live under `apps/api/src/modules/*/routes` or a similar controller structure. Prompt templates live under `packages/config/prompts/`. Collaboration logic lives under `apps/collab/src/rooms`, `apps/collab/src/sync`, and `apps/collab/src/reconnect`.
 
-### 2.3.4 Shared Code
+### 2.3.5 Shared Code
 
 Frontend and backend should share:
 
@@ -575,7 +643,7 @@ Frontend and backend should share:
 
 The rule is to share types and pure logic, not actual service code. That prevents duplication without making the services depend on each other too much. For example, `packages/contracts` can be imported by all apps, but the collaboration service should not import API controllers or database repositories.
 
-### 2.3.5 Configuration Management
+### 2.3.6 Configuration Management
 
 Secrets such as database URLs, object storage credentials, and LLM provider keys do not belong in the repository. The repository stores:
 
@@ -585,7 +653,7 @@ Secrets such as database URLs, object storage credentials, and LLM provider keys
 
 Real secret values live in a secret manager or deployment platform environment store. CI should block commits that contain likely secrets, and local development should use separate sandbox credentials with minimum privileges.
 
-### 2.3.6 Testing Structure
+### 2.3.7 Testing Structure
 
 Tests live close to the code for unit tests and in top-level folders for cross-service tests:
 

@@ -170,51 +170,51 @@ Collaborative Document Editor with AI Writing Assistant
 
 ## 1.5 Requirements Traceability
 
-### 1.5.1 Architecture Component Placeholders
+### 1.5.1 Architecture Component Mapping
 
 | Component ID | Component Name | Purpose |
 |---|---|---|
-| AC-01 | Web Editor Client | Editor UI, local state, presence rendering, AI UX, offline queue |
-| AC-02 | Real-Time Collaboration Service | Session orchestration, participant presence, operation fan-out |
-| AC-03 | Sync Engine (CRDT/OT) | Conflict resolution and convergence logic |
-| AC-04 | Backend API Layer | Authenticated API surface for document, AI, and user operations |
-| AC-05 | Document Service | Document CRUD and metadata handling |
-| AC-06 | Versioning Service | Immutable version snapshots and restore workflows |
-| AC-07 | Identity and Access Service | Authentication, RBAC checks, policy enforcement |
-| AC-08 | AI Orchestrator Service | AI job lifecycle, prompt assembly, response normalization |
-| AC-09 | LLM Provider Adapter | Provider integration, retries, provider-specific constraints |
-| AC-10 | Presence/Event Channel | Real-time events for cursor/presence/status updates |
-| AC-11 | Document and Version Store | Persistent storage for documents and versions |
-| AC-12 | Audit and Activity Log Service | Immutable logs for security, AI history, and support analytics |
+| AC-01 | Web Editor SPA (Part 2 Container) | Editor UI, local state, offline queue, AI suggestion UX |
+| AC-02 | Collaboration Service (Part 2 Container) | Session orchestration, participant presence, operation fan-out |
+| AC-03 | CRDT Sync Engine (Part 2 L3 Component) | Deterministic concurrent edit merge and convergence |
+| AC-04 | API Application (Part 2 Container) | Authenticated API surface for documents, sharing, versions, AI jobs |
+| AC-05 | Document/Metadata Module (inside API) | Document CRUD, metadata lifecycle, and routing |
+| AC-06 | Versioning Module (inside API) | Immutable snapshots and revert-as-new-head workflows |
+| AC-07 | Identity/Authorization Module (inside API + IdP integration) | Authentication, RBAC checks, policy enforcement |
+| AC-08 | AI Orchestrator Worker (Part 2 Container) | AI job lifecycle, prompt assembly, provider routing |
+| AC-09 | LLM Provider Adapter (inside AI worker) | Third-party model integration and failure normalization |
+| AC-10 | Event Channel (WebSocket + SSE) | Real-time ops/presence and async AI status updates |
+| AC-11 | Data Stores (PostgreSQL + Object Storage) | Persistent documents, versions, AI metadata, exports |
+| AC-12 | Audit/Activity Logging (API + storage) | Security-relevant actions and AI interaction history |
 
 ### 1.5.2 User Story to Requirement to Component Matrix
 
 | User Story | Functional Requirements | Architecture Components |
 |---|---|---|
-| US-01: Offline edit sync after reconnection | FR-COL-04: Offline editing and resynchronization; FR-COL-01: Simultaneous editing with eventual consistency | AC-01: Web Editor Client; AC-02: Real-Time Collaboration Service; AC-03: Sync Engine (CRDT/OT); AC-10: Presence/Event Channel |
-| US-02: Predictable concurrent paragraph merge | FR-COL-01: Simultaneous editing with eventual consistency; FR-COL-03: Overlapping-edit conflict handling | AC-01: Web Editor Client; AC-02: Real-Time Collaboration Service; AC-03: Sync Engine (CRDT/OT) |
-| US-03: Revert to a previous version during active editing | FR-DOC-03: Safe revert during active collaboration; FR-DOC-02: Version snapshotting | AC-01: Web Editor Client; AC-05: Document Service; AC-06: Versioning Service; AC-10: Presence/Event Channel; AC-11: Document and Version Store |
-| US-04: Paragraph summarization on demand | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-08: AI Orchestrator Service; AC-09: LLM Provider Adapter |
-| US-05: Section translation for multilingual collaboration | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context; FR-AI-05: Role and quota enforcement | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-08: AI Orchestrator Service; AC-09: LLM Provider Adapter |
-| US-06: AI outline restructuring | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-08: AI Orchestrator Service; AC-09: LLM Provider Adapter |
-| US-07: Partial acceptance of AI rewrite | FR-AI-03: Partial acceptance and manual refinement; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-08: AI Orchestrator Service |
-| US-08: Read-only document sharing | FR-DOC-04: Sharing and access control grants; FR-UM-02: Role-based authorization matrix | AC-04: Backend API Layer; AC-05: Document Service; AC-07: Identity and Access Service |
-| US-09: Export with AI change trail | FR-DOC-05: Export in common formats; FR-DOC-06: Export with AI change trace option | AC-04: Backend API Layer; AC-05: Document Service; AC-11: Document and Version Store; AC-12: Audit and Activity Log Service |
-| US-10: Review AI interaction history | FR-AI-06: AI interaction history; FR-UM-06: Security-relevant audit logging | AC-04: Backend API Layer; AC-08: AI Orchestrator Service; AC-12: Audit and Activity Log Service |
-| US-11: AI policy enforcement by role | FR-UM-04: Fine-grained AI permissions by role; FR-AI-05: Role and quota enforcement; FR-UM-05: Unauthorized action handling | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-08: AI Orchestrator Service |
-| US-12: Configure AI features by role | FR-UM-04: Fine-grained AI permissions by role; FR-UM-06: Security-relevant audit logging | AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-12: Audit and Activity Log Service |
-| US-13: Graceful handling of forbidden edits | FR-UM-02: Role-based authorization matrix; FR-UM-05: Unauthorized action handling | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service |
+| US-01: Offline edit sync after reconnection | FR-COL-04: Offline editing and resynchronization; FR-COL-01: Simultaneous editing with eventual consistency | AC-01: Web Editor SPA; AC-02: Collaboration Service; AC-03: CRDT Sync Engine; AC-10: Event Channel |
+| US-02: Predictable concurrent paragraph merge | FR-COL-01: Simultaneous editing with eventual consistency; FR-COL-03: Overlapping-edit conflict handling | AC-01: Web Editor SPA; AC-02: Collaboration Service; AC-03: CRDT Sync Engine |
+| US-03: Revert to a previous version during active editing | FR-DOC-03: Safe revert during active collaboration; FR-DOC-02: Version snapshotting | AC-01: Web Editor SPA; AC-05: Document/Metadata Module; AC-06: Versioning Module; AC-10: Event Channel; AC-11: Data Stores |
+| US-04: Paragraph summarization on demand | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor SPA; AC-04: API Application; AC-08: AI Orchestrator Worker; AC-09: LLM Provider Adapter |
+| US-05: Section translation for multilingual collaboration | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context; FR-AI-05: Role and quota enforcement | AC-01: Web Editor SPA; AC-04: API Application; AC-07: Identity/Authorization Module; AC-08: AI Orchestrator Worker; AC-09: LLM Provider Adapter |
+| US-06: AI outline restructuring | FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor SPA; AC-04: API Application; AC-08: AI Orchestrator Worker; AC-09: LLM Provider Adapter |
+| US-07: Partial acceptance of AI rewrite | FR-AI-03: Partial acceptance and manual refinement; FR-AI-02: Suggestion presentation with diff context | AC-01: Web Editor SPA; AC-04: API Application; AC-08: AI Orchestrator Worker |
+| US-08: Read-only document sharing | FR-DOC-04: Sharing and access control grants; FR-UM-02: Role-based authorization matrix | AC-04: API Application; AC-05: Document/Metadata Module; AC-07: Identity/Authorization Module |
+| US-09: Export with AI change trail | FR-DOC-05: Export in common formats; FR-DOC-06: Export with AI change trace option | AC-04: API Application; AC-05: Document/Metadata Module; AC-11: Data Stores; AC-12: Audit/Activity Logging |
+| US-10: Review AI interaction history | FR-AI-06: AI interaction history; FR-UM-06: Security-relevant audit logging | AC-04: API Application; AC-08: AI Orchestrator Worker; AC-12: Audit/Activity Logging |
+| US-11: AI policy enforcement by role | FR-UM-04: Fine-grained AI permissions by role; FR-AI-05: Role and quota enforcement; FR-UM-05: Unauthorized action handling | AC-01: Web Editor SPA; AC-04: API Application; AC-07: Identity/Authorization Module; AC-08: AI Orchestrator Worker |
+| US-12: Configure AI features by role | FR-UM-04: Fine-grained AI permissions by role; FR-UM-06: Security-relevant audit logging | AC-04: API Application; AC-07: Identity/Authorization Module; AC-12: Audit/Activity Logging |
+| US-13: Graceful handling of forbidden edits | FR-UM-02: Role-based authorization matrix; FR-UM-05: Unauthorized action handling | AC-01: Web Editor SPA; AC-04: API Application; AC-07: Identity/Authorization Module |
 
 ### 1.5.3 Requirement Coverage to Architecture Components
 
 | Requirement Titles | Mapped Architecture Components |
 |---|---|
-| FR-COL-HL: Multi-user real-time co-editing capability; FR-COL-01: Simultaneous editing with eventual consistency; FR-COL-02: Presence awareness; FR-COL-03: Overlapping-edit conflict handling; FR-COL-04: Offline editing and resynchronization; FR-COL-05: Session bootstrap consistency | AC-01: Web Editor Client; AC-02: Real-Time Collaboration Service; AC-03: Sync Engine (CRDT/OT); AC-10: Presence/Event Channel |
-| FR-AI-HL: In-context AI assistance capability; FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context; FR-AI-03: Partial acceptance and manual refinement; FR-AI-04: Async status and cancellation; FR-AI-05: Role and quota enforcement; FR-AI-06: AI interaction history | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-08: AI Orchestrator Service; AC-09: LLM Provider Adapter; AC-12: Audit and Activity Log Service |
-| FR-DOC-HL: Full document lifecycle management capability; FR-DOC-01: Document creation and metadata initialization; FR-DOC-02: Version snapshotting; FR-DOC-03: Safe revert during active collaboration; FR-DOC-04: Sharing and access control grants; FR-DOC-05: Export in common formats; FR-DOC-06: Export with AI change trace option | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-05: Document Service; AC-06: Versioning Service; AC-10: Presence/Event Channel; AC-11: Document and Version Store; AC-12: Audit and Activity Log Service |
-| FR-UM-HL: Authentication, authorization, and session management capability; FR-UM-01: User authentication; FR-UM-02: Role-based authorization matrix; FR-UM-03: Session lifecycle handling; FR-UM-04: Fine-grained AI permissions by role; FR-UM-05: Unauthorized action handling; FR-UM-06: Security-relevant audit logging | AC-01: Web Editor Client; AC-04: Backend API Layer; AC-07: Identity and Access Service; AC-12: Audit and Activity Log Service |
+| FR-COL-HL: Multi-user real-time co-editing capability; FR-COL-01: Simultaneous editing with eventual consistency; FR-COL-02: Presence awareness; FR-COL-03: Overlapping-edit conflict handling; FR-COL-04: Offline editing and resynchronization; FR-COL-05: Session bootstrap consistency | AC-01: Web Editor SPA; AC-02: Collaboration Service; AC-03: CRDT Sync Engine; AC-10: Event Channel |
+| FR-AI-HL: In-context AI assistance capability; FR-AI-01: AI invocation from explicit user intent; FR-AI-02: Suggestion presentation with diff context; FR-AI-03: Partial acceptance and manual refinement; FR-AI-04: Async status and cancellation; FR-AI-05: Role and quota enforcement; FR-AI-06: AI interaction history | AC-01: Web Editor SPA; AC-04: API Application; AC-07: Identity/Authorization Module; AC-08: AI Orchestrator Worker; AC-09: LLM Provider Adapter; AC-12: Audit/Activity Logging |
+| FR-DOC-HL: Full document lifecycle management capability; FR-DOC-01: Document creation and metadata initialization; FR-DOC-02: Version snapshotting; FR-DOC-03: Safe revert during active collaboration; FR-DOC-04: Sharing and access control grants; FR-DOC-05: Export in common formats; FR-DOC-06: Export with AI change trace option | AC-01: Web Editor SPA; AC-04: API Application; AC-05: Document/Metadata Module; AC-06: Versioning Module; AC-10: Event Channel; AC-11: Data Stores; AC-12: Audit/Activity Logging |
+| FR-UM-HL: Authentication, authorization, and session management capability; FR-UM-01: User authentication; FR-UM-02: Role-based authorization matrix; FR-UM-03: Session lifecycle handling; FR-UM-04: Fine-grained AI permissions by role; FR-UM-05: Unauthorized action handling; FR-UM-06: Security-relevant audit logging | AC-01: Web Editor SPA; AC-04: API Application; AC-07: Identity/Authorization Module; AC-12: Audit/Activity Logging |
 
 ### Traceability Completeness Check
 - Every user story (`US-01` to `US-13`) maps to one or more functional requirements.
-- Every functional requirement maps to at least one architecture component placeholder.
-- Detailed component interfaces and responsibilities will be finalized in Assignment Part 2.
+- Every functional requirement maps to at least one architecture component.
+- Component responsibilities are aligned with the Part 2 container and component design.
