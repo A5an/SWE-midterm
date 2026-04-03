@@ -3,9 +3,9 @@
 ## Project
 Collaborative Document Editor with AI Writing Assistant
 
-This document builds on [Part1_Requirements_Engineering.md](../Part1_Requirements_Engineering.md). The architecture follows the C4 model at the System Context, Container, and Component levels, then covers feature breakdown, AI integration, API design, authorization, communication, code structure, data model, and architecture decision records.
+This document builds on [Part1_Requirements_Engineering.md](../requirements/Part1_Requirements_Engineering.md). The architecture follows the C4 model at the System Context, Container, and Component levels, then covers feature breakdown, AI integration, API design, authorization, communication, code structure, data model, and architecture decision records.
 
-Every diagram in this report includes an embedded Mermaid source block and a rendered image. Standalone Mermaid source files are also stored in `architecture/diagrams/`.
+Every diagram in this report includes an embedded Mermaid source block and a rendered image. Standalone Mermaid source files are also stored in `docs/architecture/diagrams/`.
 
 ## 2.1 C4 Architecture
 
@@ -545,7 +545,7 @@ To avoid architecture-code drift, this section explicitly separates what is impl
 
 | Scope | Status | Paths | Why it exists |
 |---|---|---|---|
-| Part 4 PoC (implemented) | Implemented and runnable | `apps/web`, `apps/api`, `packages/contracts`, `docs/architecture` | Proves frontend-backend communication and shared API contracts required by the assignment PoC rubric. |
+| Part 4 PoC (implemented) | Implemented and runnable | `apps/web`, `apps/api`, `packages/contracts`, `docs/requirements`, `docs/architecture`, `docs/project-management` | Proves frontend-backend communication and shared API contracts required by the assignment PoC rubric. |
 | Planned collaboration service | Placeholder scaffold only | `apps/collab` | Reserved for real-time sync and presence responsibilities documented in C4 and feature decomposition. |
 | Planned AI worker | Placeholder scaffold only | `apps/ai-worker` | Reserved for async AI request execution and provider orchestration. |
 | Planned shared packages | Placeholder scaffold only | `packages/editor-core`, `packages/ui`, `packages/config`, `packages/testkit` | Separates reusable domain logic, UI elements, config/templates, and test utilities to reduce coupling as scope grows. |
@@ -582,7 +582,9 @@ flowchart TB
     infrastructure --> terraform[terraform/<br/>Cloud resources,<br/>secret references]
     infrastructure --> monitoring[monitoring/<br/>Dashboards, alerts,<br/>tracing]
 
-    docs --> architecture[architecture/<br/>C4 diagrams, data model,<br/>architecture narrative]
+    docs --> requirements[requirements/<br/>Part 1 requirements engineering]
+    docs --> architecture[architecture/<br/>Part 2 architecture,<br/>diagrams, rendered assets]
+    docs --> projectmgmt[project-management/<br/>Part 3 team/process planning]
 
     tests --> e2e[e2e/<br/>Browser and collaboration scenarios]
     tests --> integration[integration/<br/>API, DB, queue, AI worker flows]
@@ -613,7 +615,9 @@ SWE-midterm/
     terraform/
     monitoring/
   docs/
+    requirements/
     architecture/
+    project-management/
   tests/
     e2e/
     integration/
@@ -629,6 +633,9 @@ Directory responsibilities:
 - `packages/contracts`: shared DTOs (data transfer objects, shared request/response types), event schemas (data structure rules), validation types, permission enums.
 - `packages/editor-core`: shared edit operation types, patch formats, diff utilities, document structure helpers.
 - `packages/config`: prompt templates, feature flags, environment variable rules, non-secret defaults.
+- `docs/requirements`: Part 1 requirements engineering deliverable.
+- `docs/architecture`: Part 2 architecture deliverable plus Mermaid sources and rendered diagrams.
+- `docs/project-management`: Part 3 team/process/risk/timeline deliverable.
 
 API route definitions live under `apps/api/src/modules/*/routes` or a similar controller structure. Prompt templates live under `packages/config/prompts/`. Collaboration logic lives under `apps/collab/src/rooms`, `apps/collab/src/sync`, and `apps/collab/src/reconnect`.
 

@@ -22,7 +22,9 @@ flowchart TB
     infrastructure --> terraform[terraform/<br/>Cloud resources,<br/>secret references]
     infrastructure --> monitoring[monitoring/<br/>Dashboards, alerts,<br/>tracing]
 
-    docs --> architecture[architecture/<br/>C4 diagrams, data model,<br/>architecture narrative]
+    docs --> requirements[requirements/<br/>Part 1 requirements engineering]
+    docs --> architecture[architecture/<br/>Part 2 architecture,<br/>diagrams, rendered assets]
+    docs --> projectmgmt[project-management/<br/>Part 3 team/process planning]
 
     tests --> e2e[e2e/<br/>Browser and collaboration scenarios]
     tests --> integration[integration/<br/>API, DB, queue, AI worker flows]

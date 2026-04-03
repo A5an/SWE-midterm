@@ -11,11 +11,6 @@
     "dev:web": "[ -d apps/web ] && npm --workspace @swe-midterm/web run dev || echo \"apps/web is not present on this branch\"",
     "test": "npm --workspace @swe-midterm/api run test",
     "typecheck": "npm --workspace @swe-midterm/contracts run typecheck && npm --workspace @swe-midterm/api run typecheck && ([ -d apps/web ] && npm --workspace @swe-midterm/web run typecheck || true)",
-    "build": "npm --workspace @swe-midterm/contracts run build && ([ -d apps/web ] && npm --workspace @swe-midterm/web run build || true)",
-    "docs:html": "node scripts/generate-assignment-report-html.mjs",
-    "docs:complete-html": "node scripts/generate-assignment-report-html.mjs --complete"
-  },
-  "devDependencies": {
-    "marked": "^17.0.5"
+    "build": "npm --workspace @swe-midterm/contracts run build && ([ -d apps/web ] && npm --workspace @swe-midterm/web run build || true)"
   }
 }
