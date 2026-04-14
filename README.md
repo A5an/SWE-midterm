@@ -4,7 +4,7 @@ Minimal proof-of-concept for the **Collaborative Document Editor with AI Writing
 
 This PoC demonstrates:
 - A working frontend (`apps/web`)
-- A working backend API (`apps/api`)
+- A working FastAPI backend (`backend/app`)
 - End-to-end frontend-backend communication for document create/load
 - Shared API data contracts via `packages/contracts`
 
@@ -17,12 +17,14 @@ This PoC intentionally does **not** implement yet:
 
 - Node.js `>= 22` (Node `24.x` used in development)
 - npm `>= 10`
+- Python `>= 3.12`
 - `make` (optional, only if you prefer Makefile commands)
 
 ## Setup
 
 ```bash
 npm install
+python3 -m pip install -r backend/requirements.txt
 ```
 
 ## Environment Setup
@@ -34,7 +36,7 @@ cp .env.example .env
 ```
 
 For the current PoC, only these variables are actively used:
-- `PORT` (API server port, default `4000`)
+- `PORT` (FastAPI server port, default `4000`)
 - `VITE_API_BASE_URL` (frontend API base URL, default `http://localhost:4000`)
 
 ## Run the PoC (Single Command)
@@ -85,23 +87,25 @@ Run type checks:
 npm run typecheck
 ```
 
-Run backend contract test:
+Run backend integration tests:
 
 ```bash
 npm test
 ```
 
-The test validates that responses match shared contracts:
-- `DocumentMetadataResponse`
-- `DocumentDetailResponse`
-- `ApiErrorEnvelope`
+The backend tests validate:
+- `POST /documents` metadata response shape
+- `GET /documents/{documentId}` detail response shape
+- `/v1/documents` compatibility routes for the current frontend
+- Standard error envelopes for validation, unknown documents, and unknown routes
 
 ## Repository Shape (PoC-relevant)
 
 ```text
 apps/
-  api/        # Node HTTP API for PoC endpoints
   web/        # Vite frontend that calls the API
+backend/
+  app/        # FastAPI backend with create/load document endpoints
 packages/
   contracts/  # Shared request/response types + validators
 docs/
@@ -117,3 +121,14 @@ docs/
 - Project management: `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md`
 - Assignment 2 implementation plan: `docs/project-management/Assignment2_Implementation_Plan.md`
 - Assignment 1 to 2 deviations log: `DEVIATIONS.md`
+
+## Current Backend Scope
+
+The FastAPI backend currently implements the migrated PoC document flow:
+- `POST /documents`
+- `GET /documents/{documentId}`
+- Compatibility aliases for the existing frontend:
+  - `POST /v1/documents`
+  - `GET /v1/documents/{documentId}`
+
+Storage is intentionally in-memory at this stage so the team can close the Assignment 2 FastAPI baseline before layering on auth, persistence, sharing, and version history.
