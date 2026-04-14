@@ -115,5 +115,5 @@ docs/
 - Requirements: `docs/requirements/Part1_Requirements_Engineering.md`
 - Architecture: `docs/architecture/Part2_System_Architecture.md`
 - Project management: `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md`
-- Assignment 2 execution plan: `docs/project-management/A2_GRADE_MAX_PLAN.md`
+- Assignment 2 implementation plan: `docs/project-management/Assignment2_Implementation_Plan.md`
 - Assignment 1 to 2 deviations log: `DEVIATIONS.md`
