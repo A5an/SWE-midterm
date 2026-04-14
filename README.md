@@ -17,6 +17,7 @@ This PoC intentionally does **not** implement yet:
 
 - Node.js `>= 22` (Node `24.x` used in development)
 - npm `>= 10`
+- `make` (optional, only if you prefer Makefile commands)
 
 ## Setup
 
@@ -24,7 +25,33 @@ This PoC intentionally does **not** implement yet:
 npm install
 ```
 
-## Run the PoC
+## Environment Setup
+
+Create your local environment file from the template:
+
+```bash
+cp .env.example .env
+```
+
+For the current PoC, only these variables are actively used:
+- `PORT` (API server port, default `4000`)
+- `VITE_API_BASE_URL` (frontend API base URL, default `http://localhost:4000`)
+
+## Run the PoC (Single Command)
+
+Using shell script:
+
+```bash
+./run.sh
+```
+
+Using Makefile:
+
+```bash
+make run
+```
+
+## Run the PoC (Manual)
 
 Start backend (Terminal 1):
 
@@ -88,3 +115,5 @@ docs/
 - Requirements: `docs/requirements/Part1_Requirements_Engineering.md`
 - Architecture: `docs/architecture/Part2_System_Architecture.md`
 - Project management: `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md`
+- Assignment 2 execution plan: `docs/project-management/A2_GRADE_MAX_PLAN.md`
+- Assignment 1 to 2 deviations log: `DEVIATIONS.md`

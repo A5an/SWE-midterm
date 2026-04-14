@@ -3,4 +3,6 @@ dist/
 .DS_Store
 coverage/
 .vite/
-
+.env
+.env.*
+!.env.example
