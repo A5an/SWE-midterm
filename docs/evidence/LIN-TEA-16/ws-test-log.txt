@@ -1,0 +1,17 @@
+> swe-midterm@0.1.0 test
+> npm --workspace @swe-midterm/api run test
+
+> @swe-midterm/api@0.1.0 pretest
+> npm --workspace @swe-midterm/contracts run build
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+> @swe-midterm/api@0.1.0 test
+> node --experimental-strip-types src/contract-test.ts
+
+ws-auth: invalid token rejected with HTTP 401
+presence: both websocket clients see the same online user list
+presence: disconnect removed the offline user from the room
+reconnect: resync applied once and the latest shared text persisted
+API + websocket contract tests passed.

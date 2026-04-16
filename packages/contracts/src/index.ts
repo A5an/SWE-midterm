@@ -2,6 +2,8 @@ export type UserRole = "owner" | "editor" | "commenter" | "viewer";
 
 export type AiFeatureType = "rewrite" | "summarize" | "translate" | "restructure";
 
+export type CollaborationActivity = "idle" | "editing";
+
 export interface DocumentParagraph {
   type: "paragraph";
   text: string;
@@ -43,12 +45,106 @@ export interface ApiErrorEnvelope {
   };
 }
 
+export interface CollaborationParticipant {
+  sessionId: string;
+  userId: string;
+  displayName: string;
+  activity: CollaborationActivity;
+}
+
+export interface CollaborationSessionRequest {
+  userId: string;
+  displayName: string;
+}
+
+export interface CollaborationSessionResponse {
+  sessionId: string;
+  documentId: string;
+  wsUrl: string;
+  sessionToken: string;
+  documentText: string;
+  serverRevision: number;
+  presence: CollaborationParticipant[];
+  issuedAt: string;
+  expiresAt: string;
+}
+
+export interface CollaborationClientPresenceMessage {
+  type: "client.presence";
+  sessionId: string;
+  activity: CollaborationActivity;
+}
+
+export interface CollaborationClientUpdateMessage {
+  type: "client.update";
+  sessionId: string;
+  clientSeq: number;
+  mutationId: string;
+  baseRevision: number;
+  text: string;
+}
+
+export type CollaborationClientMessage =
+  | CollaborationClientPresenceMessage
+  | CollaborationClientUpdateMessage;
+
+export interface CollaborationServerBootstrapMessage {
+  type: "server.bootstrap";
+  sessionId: string;
+  documentId: string;
+  text: string;
+  serverRevision: number;
+  participants: CollaborationParticipant[];
+}
+
+export interface CollaborationServerPresenceMessage {
+  type: "server.presence";
+  participants: CollaborationParticipant[];
+}
+
+export interface CollaborationServerAckMessage {
+  type: "server.ack";
+  sessionId: string;
+  ackClientSeq: number;
+  mutationId: string;
+  serverRevision: number;
+  text: string;
+}
+
+export interface CollaborationServerUpdateMessage {
+  type: "server.update";
+  sessionId: string;
+  mutationId: string;
+  authorUserId: string;
+  serverRevision: number;
+  text: string;
+}
+
+export interface CollaborationServerErrorMessage {
+  type: "server.error";
+  code: string;
+  message: string;
+}
+
+export type CollaborationServerMessage =
+  | CollaborationServerBootstrapMessage
+  | CollaborationServerPresenceMessage
+  | CollaborationServerAckMessage
+  | CollaborationServerUpdateMessage
+  | CollaborationServerErrorMessage;
+
 type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; reason: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0;
+
+const isCollaborationActivity = (value: unknown): value is CollaborationActivity =>
+  value === "idle" || value === "editing";
 
 export const isDocumentContent = (value: unknown): value is DocumentContent => {
   if (!isRecord(value)) {
@@ -99,6 +195,90 @@ export const parseCreateDocumentRequest = (value: unknown): ParseResult<CreateDo
   };
 };
 
+export const parseCollaborationSessionRequest = (
+  value: unknown
+): ParseResult<CollaborationSessionRequest> => {
+  if (!isRecord(value)) {
+    return { ok: false, reason: "Request body must be a JSON object." };
+  }
+
+  const { userId, displayName } = value;
+
+  if (!isNonEmptyString(userId)) {
+    return { ok: false, reason: "userId must be a non-empty string." };
+  }
+
+  if (!isNonEmptyString(displayName)) {
+    return { ok: false, reason: "displayName must be a non-empty string." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      userId,
+      displayName
+    }
+  };
+};
+
+export const parseCollaborationClientMessage = (
+  value: unknown
+): ParseResult<CollaborationClientMessage> => {
+  if (!isRecord(value) || !isNonEmptyString(value.type) || !isNonEmptyString(value.sessionId)) {
+    return { ok: false, reason: "Collaboration message must include type and sessionId." };
+  }
+
+  if (value.type === "client.presence") {
+    if (!isCollaborationActivity(value.activity)) {
+      return { ok: false, reason: "Presence updates must use a valid activity state." };
+    }
+
+    return {
+      ok: true,
+      value: {
+        type: "client.presence",
+        sessionId: value.sessionId,
+        activity: value.activity
+      }
+    };
+  }
+
+  if (value.type === "client.update") {
+    if (!Number.isInteger(value.clientSeq) || (value.clientSeq as number) < 1) {
+      return { ok: false, reason: "clientSeq must be a positive integer." };
+    }
+
+    if (!isNonEmptyString(value.mutationId)) {
+      return { ok: false, reason: "mutationId must be a non-empty string." };
+    }
+
+    if (!Number.isInteger(value.baseRevision) || (value.baseRevision as number) < 0) {
+      return { ok: false, reason: "baseRevision must be a non-negative integer." };
+    }
+
+    if (typeof value.text !== "string") {
+      return { ok: false, reason: "text must be a string." };
+    }
+
+    const clientSeq = value.clientSeq as number;
+    const baseRevision = value.baseRevision as number;
+
+    return {
+      ok: true,
+      value: {
+        type: "client.update",
+        sessionId: value.sessionId,
+        clientSeq,
+        mutationId: value.mutationId,
+        baseRevision,
+        text: value.text
+      }
+    };
+  }
+
+  return { ok: false, reason: `Unsupported collaboration message type '${value.type}'.` };
+};
+
 const isIsoDateString = (value: unknown): value is string =>
   typeof value === "string" && !Number.isNaN(Date.parse(value));
 
@@ -133,5 +313,39 @@ export const isApiErrorEnvelope = (value: unknown): value is ApiErrorEnvelope =>
     typeof error.message === "string" &&
     typeof error.retryable === "boolean" &&
     typeof error.requestId === "string"
+  );
+};
+
+export const isCollaborationParticipant = (value: unknown): value is CollaborationParticipant => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.sessionId) &&
+    isNonEmptyString(value.userId) &&
+    isNonEmptyString(value.displayName) &&
+    isCollaborationActivity(value.activity)
+  );
+};
+
+export const isCollaborationSessionResponse = (
+  value: unknown
+): value is CollaborationSessionResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.sessionId) &&
+    isNonEmptyString(value.documentId) &&
+    isNonEmptyString(value.wsUrl) &&
+    isNonEmptyString(value.sessionToken) &&
+    typeof value.documentText === "string" &&
+    Number.isInteger(value.serverRevision) &&
+    Array.isArray(value.presence) &&
+    value.presence.every((participant) => isCollaborationParticipant(participant)) &&
+    isIsoDateString(value.issuedAt) &&
+    isIsoDateString(value.expiresAt)
   );
 };

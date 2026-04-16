@@ -6,12 +6,13 @@ This PoC demonstrates:
 - A working frontend (`apps/web`)
 - A working backend API (`apps/api`)
 - End-to-end frontend-backend communication for document create/load
+- Authenticated WebSocket collaboration bootstrap with presence and reconnect resync
 - Shared API data contracts via `packages/contracts`
 
 This PoC intentionally does **not** implement yet:
-- Real-time collaboration (`apps/collab` is placeholder)
 - AI orchestration (`apps/ai-worker` is placeholder)
-- Auth, persistence, sharing, version revert, export
+- Full JWT login/refresh flow, sharing, version restore, export
+- Separate collaboration container deployment (`apps/collab` remains a placeholder while baseline runs in `apps/api`)
 
 ## Prerequisites
 
@@ -36,6 +37,7 @@ cp .env.example .env
 For the current PoC, only these variables are actively used:
 - `PORT` (API server port, default `4000`)
 - `VITE_API_BASE_URL` (frontend API base URL, default `http://localhost:4000`)
+- `JWT_ACCESS_SECRET` (signs the short-lived collaboration session token; defaults to a local dev fallback if unset)
 
 ## Run the PoC (Single Command)
 
@@ -71,11 +73,12 @@ Default API base URL in UI: `http://localhost:4000`
 
 ## What to Demo (3 minutes max)
 
-1. Open web app.
-2. Create document from the form (`POST /v1/documents`).
-3. Observe returned `documentId`.
-4. Load the same document (`GET /v1/documents/{documentId}`).
-5. Show status + rendered response payload in UI.
+1. Open the web app in two browser windows.
+2. Create a document in one window and load the same `documentId` in the second.
+3. Join the collaboration session in both windows with different user IDs and display names.
+4. Verify the online user list updates in both windows.
+5. Edit text in one window and watch the other window resync.
+6. Disconnect one window, keep typing locally, reconnect, and verify the latest draft syncs once.
 
 ## Contract Validation
 
@@ -91,19 +94,21 @@ Run backend contract test:
 npm test
 ```
 
-The test validates that responses match shared contracts:
+The test validates that responses and events match shared contracts:
 - `DocumentMetadataResponse`
 - `DocumentDetailResponse`
 - `ApiErrorEnvelope`
+- `CollaborationSessionResponse`
+- WebSocket auth, presence, and reconnect replay behavior
 
 ## Repository Shape (PoC-relevant)
 
 ```text
 apps/
   api/        # Node HTTP API for PoC endpoints
-  web/        # Vite frontend that calls the API
+  web/        # Vite frontend that calls the API + collaboration WebSocket
 packages/
-  contracts/  # Shared request/response types + validators
+  contracts/  # Shared request/response/event types + validators
 docs/
   requirements/
   architecture/
