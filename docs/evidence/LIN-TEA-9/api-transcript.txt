@@ -1,0 +1,98 @@
+### GET /v1/me without Authorization
+Status: 401
+Headers:
+  content-type: application/json
+  x-request-id: req_2ee24bcf55eb
+Body:
+{
+  "error": {
+    "code": "AUTHN_REQUIRED",
+    "message": "Bearer access token is required.",
+    "retryable": false,
+    "requestId": "req_2ee24bcf55eb",
+    "details": null
+  }
+}
+
+### POST /v1/auth/register
+Status: 201
+Headers:
+  content-type: application/json
+  x-request-id: req_cf6f70ed0ead
+Body:
+{
+  "user": {
+    "userId": "usr_451f9c1a",
+    "email": "jwt-demo@example.com",
+    "displayName": "JWT Demo User",
+    "workspaceRole": "member",
+    "createdAt": "2026-04-16T18:03:03.432390Z"
+  },
+  "tokens": {
+    "tokenType": "bearer",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzYzNjM0ODMsImlhdCI6MTc3NjM2MjU4MywiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc181ZGFiNTUzN2M2Iiwic3ViIjoidXNyXzQ1MWY5YzFhIiwidHlwIjoiYWNjZXNzIn0.Z7osIXvTt3UCbJFUPW38G8NcJZEe-i0QPO5md9GfjZ8",
+    "accessTokenExpiresAt": "2026-04-16T18:18:03.432439Z",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzY5NjczODMsImlhdCI6MTc3NjM2MjU4MywiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc181ZGFiNTUzN2M2Iiwic3ViIjoidXNyXzQ1MWY5YzFhIiwidHlwIjoicmVmcmVzaCJ9.7x5coxaX5rf3_KNaiG8ArM2UHEpOfpzXMJFGhc8RlY4",
+    "refreshTokenExpiresAt": "2026-04-23T18:03:03.432494Z"
+  }
+}
+
+### POST /v1/auth/login
+Status: 200
+Headers:
+  content-type: application/json
+  x-request-id: req_f7a9bf8099b6
+Body:
+{
+  "user": {
+    "userId": "usr_451f9c1a",
+    "email": "jwt-demo@example.com",
+    "displayName": "JWT Demo User",
+    "workspaceRole": "member",
+    "createdAt": "2026-04-16T18:03:03.432390Z"
+  },
+  "tokens": {
+    "tokenType": "bearer",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzYzNjM0ODMsImlhdCI6MTc3NjM2MjU4MywiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc18zN2YzOTVmZmQwIiwic3ViIjoidXNyXzQ1MWY5YzFhIiwidHlwIjoiYWNjZXNzIn0.NLjQauiIgdG-jWMPEz5J5PEpQWzMEhbkL8cKmZWiRkA",
+    "accessTokenExpiresAt": "2026-04-16T18:18:03.488239Z",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzY5NjczODMsImlhdCI6MTc3NjM2MjU4MywiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc18zN2YzOTVmZmQwIiwic3ViIjoidXNyXzQ1MWY5YzFhIiwidHlwIjoicmVmcmVzaCJ9.M-x3ZZaSrpEOxeRTzZVKIWEssWWBnsD-JY8SuAG-deU",
+    "refreshTokenExpiresAt": "2026-04-23T18:03:03.488282Z"
+  }
+}
+
+### POST /v1/auth/refresh
+Status: 200
+Headers:
+  content-type: application/json
+  x-request-id: req_c1a94d63d5ea
+Body:
+{
+  "user": {
+    "userId": "usr_451f9c1a",
+    "email": "jwt-demo@example.com",
+    "displayName": "JWT Demo User",
+    "workspaceRole": "member",
+    "createdAt": "2026-04-16T18:03:03.432390Z"
+  },
+  "tokens": {
+    "tokenType": "bearer",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzYzNjM0ODMsImlhdCI6MTc3NjM2MjU4MywiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc185NTdlZjAxZGQ0Iiwic3ViIjoidXNyXzQ1MWY5YzFhIiwidHlwIjoiYWNjZXNzIn0.MzLxUSivieD23FqGsUs-Zevn01MUB_7lQCyt79pfPMw",
+    "accessTokenExpiresAt": "2026-04-16T18:18:03.489949Z",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzY5NjczODMsImlhdCI6MTc3NjM2MjU4MywiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc185NTdlZjAxZGQ0Iiwic3ViIjoidXNyXzQ1MWY5YzFhIiwidHlwIjoicmVmcmVzaCJ9.QNh-PId8Yraa1BKN45bZ1kIhKD9U6rvhi0Y_Eha-xGY",
+    "refreshTokenExpiresAt": "2026-04-23T18:03:03.489976Z"
+  }
+}
+
+### GET /v1/me with Bearer access token
+Status: 200
+Headers:
+  content-type: application/json
+  x-request-id: req_3611aab8ea80
+Body:
+{
+  "userId": "usr_451f9c1a",
+  "email": "jwt-demo@example.com",
+  "displayName": "JWT Demo User",
+  "workspaceRole": "member",
+  "createdAt": "2026-04-16T18:03:03.432390Z"
+}

@@ -1,0 +1,18 @@
+JWT auth lifecycle evidence
+
+register: 201
+login: 200
+refresh: 200
+
+access token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6...
+rotated access prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6...
+refresh token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6...
+
+login user:
+{
+  "userId": "usr_451f9c1a",
+  "email": "jwt-demo@example.com",
+  "displayName": "JWT Demo User",
+  "workspaceRole": "member",
+  "createdAt": "2026-04-16T18:03:03.432390Z"
+}

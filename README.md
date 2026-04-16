@@ -11,7 +11,7 @@ This PoC demonstrates:
 This PoC intentionally does **not** implement yet:
 - Real-time collaboration (`apps/collab` is placeholder)
 - AI orchestration (`apps/ai-worker` is placeholder)
-- Auth, persistence, sharing, version revert, export
+- Persistence, sharing, version revert, export
 
 ## Prerequisites
 
@@ -35,9 +35,14 @@ Create your local environment file from the template:
 cp .env.example .env
 ```
 
-For the current PoC, only these variables are actively used:
+For the current backend baseline, these variables are used or recognized:
 - `PORT` (FastAPI server port, default `4000`)
 - `VITE_API_BASE_URL` (frontend API base URL, default `http://localhost:4000`)
+- `JWT_ACCESS_SECRET` (optional; falls back to a local development secret if unset)
+- `JWT_REFRESH_SECRET` (optional; falls back to a local development secret if unset)
+- `JWT_ACCESS_TTL_SECONDS` (optional; defaults to `900`)
+- `JWT_REFRESH_TTL_SECONDS` (optional; defaults to `604800`)
+- `JWT_ISSUER` (optional; defaults to `swe-midterm-fastapi`)
 
 ## Run the PoC (Single Command)
 
@@ -94,6 +99,10 @@ npm test
 ```
 
 The backend tests validate:
+- `POST /v1/auth/register` hashes passwords and returns signed access + refresh tokens
+- `POST /v1/auth/login` rejects invalid credentials and returns a fresh token pair on success
+- `POST /v1/auth/refresh` rotates refresh sessions and rejects replayed refresh tokens
+- `GET /v1/me` returns `401` without a bearer token and `200` with a valid access token
 - `POST /documents` metadata response shape
 - `GET /documents/{documentId}` detail response shape
 - `/v1/documents` compatibility routes for the current frontend
@@ -124,11 +133,19 @@ docs/
 
 ## Current Backend Scope
 
-The FastAPI backend currently implements the migrated PoC document flow:
+The FastAPI backend currently implements the baseline JWT auth lifecycle:
+- `POST /v1/auth/register`
+- `POST /v1/auth/login`
+- `POST /v1/auth/refresh`
+- `GET /v1/me` (protected bearer-token proof route)
+
+It also keeps the migrated PoC document flow:
 - `POST /documents`
 - `GET /documents/{documentId}`
 - Compatibility aliases for the existing frontend:
   - `POST /v1/documents`
   - `GET /v1/documents/{documentId}`
 
-Storage is intentionally in-memory at this stage so the team can close the Assignment 2 FastAPI baseline before layering on auth, persistence, sharing, and version history.
+Storage is intentionally in-memory at this stage so the team can close the Assignment 2 FastAPI baseline before layering on persistent storage, protected CRUD, sharing, and version history.
+
+Known limitation on this branch: the document endpoints remain open so the existing PoC frontend keeps working while protected CRUD and RBAC are implemented in follow-up Linear issues. The protected-route acceptance proof for this issue is `/v1/me`.

@@ -1,6 +1,6 @@
 # Assignment 1 to Assignment 2 Deviations
 
-Last updated: 2026-04-14
+Last updated: 2026-04-16
 
 ## Why this file exists
 Assignment 2 explicitly requires documenting all differences between the Assignment 1 design and final implementation.
@@ -21,6 +21,7 @@ Rule: no silent deviations.
 | D-003 | planned | Part 3 timeline targets final quality gate on 2026-04-24 | Team execution is re-baselined to 2026-04-19 submission window | Actual Assignment 2 deadline is earlier than Part 3 milestone assumptions | Improvement (realistic planning) | Requires strict baseline-first delivery and earlier quality freeze | Team lead | 2026-04-14 | `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:169-174`; `docs/project-management/Assignment2_Implementation_Plan.md:5-88` |
 | D-004 | implemented | Part 3 planned F1 by 2026-04-10 and F2 by 2026-04-14 | Repository remained PoC-level beyond those milestone dates | Delivery slip from original schedule | Compromise (schedule slip) | Raises rubric risk unless recovered with explicit replan and evidence discipline | Team lead | 2026-04-14 | `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:169-171`; `README.md:11-14` |
 | D-005 | implemented | A1 architecture models full collaboration + AI containers and flows | Current codebase still has PoC-only endpoints with placeholder collaboration and AI services | A1 Part 4 PoC intentionally focused on API contract skeleton | Neutral for A1; high risk for A2 if not closed quickly | Direct impact on Core/Collab/AI rubric bands until implementation catches up | Assanali, Dachi | 2026-04-16 | `README.md:11-14`; `apps/collab/README.md:3-8`; `apps/ai-worker/README.md:3-8` |
+| D-006 | implemented | A1 architecture assumes external IdP / OIDC-style authentication boundary | A2 baseline currently uses local email/password registration plus in-memory JWT access/refresh sessions in FastAPI | Assignment 2 baseline explicitly requires register/login/refresh before full identity-provider integration is justified | Compromise for milestone sequencing, but still aligned with baseline security requirements | Delivers `FR-UM-01` and part of `FR-UM-03` now; full protected CRUD and RBAC still follow in later issues | Dachi | 2026-04-16 | `backend/app/routers/auth.py:1`; `backend/app/security.py:1`; `backend/tests/test_auth.py:1`; `README.md:136`; `docs/evidence/LIN-TEA-9/api-transcript.txt` |
 
 ## Schedule Deviation Details (Rebaseline on 2026-04-14)
 

@@ -1,0 +1,21 @@
+Protected route evidence
+
+unauthenticated GET /v1/me: 401
+{
+  "error": {
+    "code": "AUTHN_REQUIRED",
+    "message": "Bearer access token is required.",
+    "retryable": false,
+    "requestId": "req_2ee24bcf55eb",
+    "details": null
+  }
+}
+
+authenticated GET /v1/me: 200
+{
+  "userId": "usr_451f9c1a",
+  "email": "jwt-demo@example.com",
+  "displayName": "JWT Demo User",
+  "workspaceRole": "member",
+  "createdAt": "2026-04-16T18:03:03.432390Z"
+}
