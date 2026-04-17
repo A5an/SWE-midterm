@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -19,7 +19,7 @@ class DocumentContent(BaseModel):
 class CreateDocumentRequest(BaseModel):
     workspaceId: str
     title: str
-    templateId: str | None = None
+    templateId: Optional[str] = None
     initialContent: DocumentContent
 
     @field_validator("workspaceId")
@@ -84,7 +84,7 @@ class ApiError(BaseModel):
     message: str
     retryable: bool
     requestId: str
-    details: dict[str, Any] | None = None
+    details: Optional[dict[str, Any]] = None
 
 
 class ApiErrorEnvelope(BaseModel):

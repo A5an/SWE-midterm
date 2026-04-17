@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from uuid import uuid4
+from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,7 +14,7 @@ from backend.app.routers.documents import router as documents_router
 from backend.app.services.document_store import DocumentStore
 
 
-def create_app(store: DocumentStore | None = None) -> FastAPI:
+def create_app(store: Optional[DocumentStore] = None) -> FastAPI:
     app = FastAPI(
         title="SWE Midterm FastAPI Backend",
         summary="Assignment 2 FastAPI skeleton for document create/load flows.",

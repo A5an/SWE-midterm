@@ -17,7 +17,7 @@ This PoC intentionally does **not** implement yet:
 
 - Node.js `>= 22` (Node `24.x` used in development)
 - npm `>= 10`
-- Python `>= 3.12`
+- Python `>= 3.9`
 - `make` (optional, only if you prefer Makefile commands)
 
 ## Setup
@@ -94,9 +94,9 @@ npm test
 ```
 
 The backend tests validate:
-- `POST /documents` metadata response shape
-- `GET /documents/{documentId}` detail response shape
-- `/v1/documents` compatibility routes for the current frontend
+- `POST /v1/documents` metadata response shape
+- `GET /v1/documents/{documentId}` detail response shape
+- `/documents` compatibility aliases for clients still using the pre-migration path
 - Standard error envelopes for validation, unknown documents, and unknown routes
 
 ## Repository Shape (PoC-relevant)
@@ -125,10 +125,10 @@ docs/
 ## Current Backend Scope
 
 The FastAPI backend currently implements the migrated PoC document flow:
-- `POST /documents`
-- `GET /documents/{documentId}`
-- Compatibility aliases for the existing frontend:
-  - `POST /v1/documents`
-  - `GET /v1/documents/{documentId}`
+- `POST /v1/documents`
+- `GET /v1/documents/{documentId}`
+- Compatibility aliases for legacy clients:
+  - `POST /documents`
+  - `GET /documents/{documentId}`
 
 Storage is intentionally in-memory at this stage so the team can close the Assignment 2 FastAPI baseline before layering on auth, persistence, sharing, and version history.
