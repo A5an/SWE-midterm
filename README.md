@@ -6,7 +6,7 @@ This PoC demonstrates:
 - A working frontend (`apps/web`)
 - A working backend API (`apps/api`)
 - End-to-end frontend-backend communication for document create/load
-- Authenticated WebSocket collaboration bootstrap with presence and reconnect resync
+- Demo-authenticated collaboration session bootstrap with presence and reconnect resync
 - Shared API data contracts via `packages/contracts`
 
 This PoC intentionally does **not** implement yet:
@@ -37,7 +37,7 @@ cp .env.example .env
 For the current PoC, only these variables are actively used:
 - `PORT` (API server port, default `4000`)
 - `VITE_API_BASE_URL` (frontend API base URL, default `http://localhost:4000`)
-- `JWT_ACCESS_SECRET` (signs the short-lived collaboration session token; defaults to a local dev fallback if unset)
+- `JWT_ACCESS_SECRET` (signs demo API access tokens and short-lived collaboration session tokens; defaults to a local dev fallback if unset)
 
 ## Run the PoC (Single Command)
 
@@ -71,14 +71,20 @@ Open the app at the Vite URL (usually `http://localhost:5173`).
 
 Default API base URL in UI: `http://localhost:4000`
 
+Demo login credentials for the collaboration baseline:
+- `usr_assanali` / `demo-assanali`
+- `usr_alaa` / `demo-alaa`
+- `usr_dachi` / `demo-dachi`
+
 ## What to Demo (3 minutes max)
 
 1. Open the web app in two browser windows.
-2. Create a document in one window and load the same `documentId` in the second.
-3. Join the collaboration session in both windows with different user IDs and display names.
-4. Verify the online user list updates in both windows.
-5. Edit text in one window and watch the other window resync.
-6. Disconnect one window, keep typing locally, reconnect, and verify the latest draft syncs once.
+2. Sign in each window with a different demo user.
+3. Create a document in one window and load the same `documentId` in the second.
+4. Join the collaboration session in both windows.
+5. Verify the online user list updates in both windows.
+6. Edit text in one window and watch the other window resync.
+7. Disconnect one window, keep typing locally, reconnect, and verify the latest draft syncs once.
 
 ## Contract Validation
 
@@ -97,9 +103,10 @@ npm test
 The test validates that responses and events match shared contracts:
 - `DocumentMetadataResponse`
 - `DocumentDetailResponse`
+- `DemoLoginResponse`
 - `ApiErrorEnvelope`
 - `CollaborationSessionResponse`
-- WebSocket auth, presence, and reconnect replay behavior
+- Demo login auth, session bootstrap authorization, WebSocket auth, presence, and reconnect replay behavior
 
 ## Repository Shape (PoC-relevant)
 

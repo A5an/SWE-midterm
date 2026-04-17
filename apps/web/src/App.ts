@@ -2,6 +2,7 @@ import "./App.css";
 import {
   isApiErrorEnvelope,
   isCollaborationSessionResponse,
+  isDemoLoginResponse,
   isDocumentDetailResponse,
   isDocumentMetadataResponse,
   type CollaborationParticipant,
@@ -49,8 +50,8 @@ export const mountApp = (root: HTMLElement): void => {
         <p class="eyebrow">Assignment 2 Collaboration Baseline</p>
         <h1>Authenticated WebSocket + Presence + Reconnect Demo</h1>
         <p class="summary">
-          Create or load a document, join as different users in two browser windows,
-          and verify presence plus reconnect-safe text sync.
+          Create or load a document, sign in with a trusted demo identity, then join
+          as different users in two browser windows to verify presence plus reconnect-safe text sync.
         </p>
       </header>
 
@@ -92,21 +93,52 @@ export const mountApp = (root: HTMLElement): void => {
       </div>
 
       <section class="panel">
-        <h2>Collaboration Session</h2>
+        <h2>Demo Login</h2>
         <div class="three-column">
           <div class="form-grid">
             <label class="field-label" for="userId">User ID</label>
             <input id="userId" class="text-input" value="usr_assanali" />
           </div>
           <div class="form-grid">
-            <label class="field-label" for="displayName">Display Name</label>
-            <input id="displayName" class="text-input" value="Assanali" />
+            <label class="field-label" for="password">Password</label>
+            <input id="password" class="text-input" type="password" value="demo-assanali" />
           </div>
           <div class="button-row">
+            <button id="loginButton" class="button button-primary" type="button">Sign In</button>
+            <button id="logoutButton" class="button button-ghost" type="button">Clear Auth</button>
+          </div>
+        </div>
+        <p class="hint">
+          Demo credentials: <code>usr_assanali</code> / <code>demo-assanali</code>,
+          <code>usr_alaa</code> / <code>demo-alaa</code>, <code>usr_dachi</code> / <code>demo-dachi</code>.
+        </p>
+
+        <div class="session-bar">
+          <div>
+            <span class="field-label">Auth</span>
+            <p id="authState" class="session-value">Signed out</p>
+          </div>
+          <div>
+            <span class="field-label">Identity</span>
+            <p id="authIdentity" class="session-value">No authenticated API identity</p>
+          </div>
+          <div>
+            <span class="field-label">Workspace Access</span>
+            <p id="authWorkspaces" class="session-value">-</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Collaboration Session</h2>
+        <p class="hint">
+          Session bootstrap requires the signed API access token from Demo Login. The server then
+          issues a short-lived WebSocket session token for the document.
+        </p>
+        <div class="button-row">
             <button id="joinButton" class="button button-primary" type="button">Join Session</button>
             <button id="disconnectButton" class="button button-ghost" type="button">Disconnect</button>
             <button id="reconnectButton" class="button button-secondary" type="button">Reconnect</button>
-          </div>
         </div>
 
         <div class="session-bar">
@@ -159,7 +191,12 @@ export const mountApp = (root: HTMLElement): void => {
   const documentIdInput = root.querySelector<HTMLInputElement>("#documentId");
   const loadButton = root.querySelector<HTMLButtonElement>("#loadButton");
   const userIdInput = root.querySelector<HTMLInputElement>("#userId");
-  const displayNameInput = root.querySelector<HTMLInputElement>("#displayName");
+  const passwordInput = root.querySelector<HTMLInputElement>("#password");
+  const loginButton = root.querySelector<HTMLButtonElement>("#loginButton");
+  const logoutButton = root.querySelector<HTMLButtonElement>("#logoutButton");
+  const authState = root.querySelector<HTMLElement>("#authState");
+  const authIdentity = root.querySelector<HTMLElement>("#authIdentity");
+  const authWorkspaces = root.querySelector<HTMLElement>("#authWorkspaces");
   const joinButton = root.querySelector<HTMLButtonElement>("#joinButton");
   const disconnectButton = root.querySelector<HTMLButtonElement>("#disconnectButton");
   const reconnectButton = root.querySelector<HTMLButtonElement>("#reconnectButton");
@@ -180,7 +217,12 @@ export const mountApp = (root: HTMLElement): void => {
     !documentIdInput ||
     !loadButton ||
     !userIdInput ||
-    !displayNameInput ||
+    !passwordInput ||
+    !loginButton ||
+    !logoutButton ||
+    !authState ||
+    !authIdentity ||
+    !authWorkspaces ||
     !joinButton ||
     !disconnectButton ||
     !reconnectButton ||
@@ -200,6 +242,14 @@ export const mountApp = (root: HTMLElement): void => {
   let reconnectTimer: number | null = null;
   let sendTimer: number | null = null;
   let typingIdleTimer: number | null = null;
+  let authSession:
+    | {
+        accessToken: string;
+        displayName: string;
+        userId: string;
+        workspaceIds: string[];
+      }
+    | null = null;
   let pendingMutation: PendingMutation | null = null;
   let sessionInfo:
     | {
@@ -220,9 +270,31 @@ export const mountApp = (root: HTMLElement): void => {
 
   const currentApiBase = (): string => apiBaseInput.value.trim().replace(/\/+$/, "");
 
+  const currentAuthHeaders = (includeJson = false): Record<string, string> => {
+    const headers: Record<string, string> = {};
+
+    if (includeJson) {
+      headers["Content-Type"] = "application/json";
+    }
+
+    if (authSession) {
+      headers.Authorization = `Bearer ${authSession.accessToken}`;
+    }
+
+    return headers;
+  };
+
   const updateRevisionState = (revision: number): void => {
     currentServerRevision = revision;
     revisionState.textContent = String(revision);
+  };
+
+  const updateAuthState = (): void => {
+    authState.textContent = authSession ? "Signed in" : "Signed out";
+    authIdentity.textContent = authSession
+      ? `${authSession.displayName} (${authSession.userId})`
+      : "No authenticated API identity";
+    authWorkspaces.textContent = authSession ? authSession.workspaceIds.join(", ") : "-";
   };
 
   const renderDocument = (document: DocumentDetailResponse): void => {
@@ -619,9 +691,7 @@ export const mountApp = (root: HTMLElement): void => {
 
     const response = await fetch(`${currentApiBase()}/v1/documents`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: currentAuthHeaders(true),
       body: JSON.stringify(requestBody)
     });
 
@@ -646,6 +716,59 @@ export const mountApp = (root: HTMLElement): void => {
     await loadDocumentById(documentIdInput.value);
   });
 
+  loginButton.addEventListener("click", async () => {
+    setStatus("Signing in with demo credentials...");
+
+    const response = await fetch(`${currentApiBase()}/v1/auth/demo-login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        userId: userIdInput.value.trim(),
+        password: passwordInput.value
+      })
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("Demo login failed", payload);
+      return;
+    }
+
+    if (!isDemoLoginResponse(payload)) {
+      setStatus("Demo login failed: backend response does not match auth contract.");
+      return;
+    }
+
+    authSession = {
+      accessToken: payload.accessToken,
+      displayName: payload.displayName,
+      userId: payload.userId,
+      workspaceIds: payload.workspaceIds
+    };
+    updateAuthState();
+
+    if (sessionInfo) {
+      resetCollaboration(false);
+      collabEditor.value = currentDocument ? toParagraphText(currentDocument) : collabEditor.value;
+    }
+
+    setStatus(
+      `Signed in as ${payload.displayName}. Session bootstrap is now authorized for workspaces: ${payload.workspaceIds.join(", ")}.`
+    );
+  });
+
+  logoutButton.addEventListener("click", () => {
+    authSession = null;
+    updateAuthState();
+    if (sessionInfo) {
+      resetCollaboration(false);
+      collabEditor.value = currentDocument ? toParagraphText(currentDocument) : collabEditor.value;
+    }
+    setStatus("Signed out. Sign in again before starting a collaboration session.");
+  });
+
   joinButton.addEventListener("click", async () => {
     const documentId = documentIdInput.value.trim();
 
@@ -654,17 +777,17 @@ export const mountApp = (root: HTMLElement): void => {
       return;
     }
 
+    if (!authSession) {
+      setStatus("Join blocked: sign in first so the API can authorize session bootstrap.");
+      return;
+    }
+
     manualDisconnect = false;
 
     const response = await fetch(`${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/sessions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        userId: userIdInput.value.trim(),
-        displayName: displayNameInput.value.trim()
-      })
+      headers: currentAuthHeaders(true),
+      body: JSON.stringify({})
     });
     const payload = await readJson(response);
 
@@ -758,5 +881,6 @@ export const mountApp = (root: HTMLElement): void => {
     }
   });
   resetCollaboration(true);
+  updateAuthState();
   documentOutput.textContent = "No document loaded yet.";
 };

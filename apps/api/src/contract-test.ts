@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { createConnection } from "node:net";
 import {
   isApiErrorEnvelope,
+  isDemoLoginResponse,
   isCollaborationSessionResponse,
   isDocumentDetailResponse,
   isDocumentMetadataResponse
@@ -185,7 +186,69 @@ const main = async (): Promise<void> => {
   assert.match(invalidHandshakeResponse, /AUTH_INVALID_TOKEN/u);
   console.log("ws-auth: invalid token rejected with HTTP 401");
 
-  const createSession = async (userId: string, displayName: string): Promise<{
+  const loginDemoUser = async (userId: string, password: string): Promise<{
+    accessToken: string;
+    displayName: string;
+    userId: string;
+    workspaceIds: string[];
+  }> => {
+    const response = await fetch(`${baseUrl}/v1/auth/demo-login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ userId, password })
+    });
+
+    assert.equal(response.status, 200, "Demo login must return 200 for valid credentials.");
+    const body = (await response.json()) as unknown;
+    assert.equal(isDemoLoginResponse(body), true, "Demo login must match the documented auth contract.");
+
+    return body as {
+      accessToken: string;
+      displayName: string;
+      userId: string;
+      workspaceIds: string[];
+    };
+  };
+
+  const unauthenticatedSessionResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/sessions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({})
+    }
+  );
+  assert.equal(unauthenticatedSessionResponse.status, 401, "Session bootstrap must require API auth.");
+  const unauthenticatedSessionBody = (await unauthenticatedSessionResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(unauthenticatedSessionBody), true);
+  assert.equal(
+    (unauthenticatedSessionBody as { error: { code: string } }).error.code,
+    "AUTH_REQUIRED"
+  );
+
+  const outsider = await loginDemoUser("usr_viewer", "demo-viewer");
+  const forbiddenSessionResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/sessions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${outsider.accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({})
+  });
+  assert.equal(forbiddenSessionResponse.status, 403, "Session bootstrap must enforce document access.");
+  const forbiddenSessionBody = (await forbiddenSessionResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(forbiddenSessionBody), true);
+  assert.equal(
+    (forbiddenSessionBody as { error: { code: string } }).error.code,
+    "ACCESS_FORBIDDEN"
+  );
+  console.log("authz: session bootstrap requires API auth and workspace access");
+
+  const createSession = async (accessToken: string): Promise<{
     documentId: string;
     sessionId: string;
     sessionToken: string;
@@ -194,9 +257,10 @@ const main = async (): Promise<void> => {
     const response = await fetch(`${baseUrl}/v1/documents/${created.documentId}/sessions`, {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ userId, displayName })
+      body: JSON.stringify({})
     });
 
     assert.equal(response.status, 201, "Session bootstrap must return 201.");
@@ -215,8 +279,10 @@ const main = async (): Promise<void> => {
     };
   };
 
-  const sessionA = await createSession("usr_a", "Assanali");
-  const sessionB = await createSession("usr_b", "Alaa");
+  const authA = await loginDemoUser("usr_assanali", "demo-assanali");
+  const authB = await loginDemoUser("usr_alaa", "demo-alaa");
+  const sessionA = await createSession(authA.accessToken);
+  const sessionB = await createSession(authB.accessToken);
 
   const userA = await openSocket(`${sessionA.wsUrl}?token=${encodeURIComponent(sessionA.sessionToken)}`);
   const bootstrapA = await waitForMessage<{
@@ -246,11 +312,11 @@ const main = async (): Promise<void> => {
   );
   assert.deepEqual(
     presenceForA.participants.map((participant) => participant.userId).sort(),
-    ["usr_a", "usr_b"]
+    ["usr_alaa", "usr_assanali"]
   );
   assert.deepEqual(
     presenceForB.participants.map((participant) => participant.userId).sort(),
-    ["usr_a", "usr_b"]
+    ["usr_alaa", "usr_assanali"]
   );
   console.log("presence: both websocket clients see the same online user list");
 
@@ -262,7 +328,7 @@ const main = async (): Promise<void> => {
       Array.isArray(message.participants) &&
       message.participants.length === 1
   );
-  assert.deepEqual(afterDisconnectPresence.participants.map((participant) => participant.userId), ["usr_a"]);
+  assert.deepEqual(afterDisconnectPresence.participants.map((participant) => participant.userId), ["usr_assanali"]);
   console.log("presence: disconnect removed the offline user from the room");
 
   const reconnectedB = await openSocket(`${sessionB.wsUrl}?token=${encodeURIComponent(sessionB.sessionToken)}`);
@@ -282,7 +348,7 @@ const main = async (): Promise<void> => {
   );
   assert.deepEqual(
     afterReconnectPresence.participants.map((participant) => participant.userId).sort(),
-    ["usr_a", "usr_b"]
+    ["usr_alaa", "usr_assanali"]
   );
 
   const offlineReplayMessage = {

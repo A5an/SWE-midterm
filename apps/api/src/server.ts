@@ -11,6 +11,7 @@ import {
   parseCollaborationClientMessage,
   parseCollaborationSessionRequest,
   parseCreateDocumentRequest,
+  parseDemoLoginRequest,
   type ApiErrorEnvelope,
   type CollaborationParticipant,
   type CollaborationServerAckMessage,
@@ -56,6 +57,15 @@ interface StoredDocument {
   updatedAt: string;
 }
 
+interface AccessTokenPayload {
+  exp: number;
+  iat: number;
+  name: string;
+  sub: string;
+  tokenUse: "api_access";
+  workspaceIds: string[];
+}
+
 interface SessionTokenPayload {
   documentId: string;
   exp: number;
@@ -63,13 +73,57 @@ interface SessionTokenPayload {
   name: string;
   sessionId: string;
   sub: string;
+  tokenUse: "collab_session";
+}
+
+type SignedTokenPayload = AccessTokenPayload | SessionTokenPayload;
+
+interface DemoUser {
+  displayName: string;
+  password: string;
+  workspaceIds: string[];
 }
 
 const DEFAULT_PORT = Number(process.env.PORT ?? 4000);
+const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 const SESSION_TOKEN_TTL_SECONDS = 20 * 60;
 const SESSION_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET?.trim() || "dev-collab-secret";
 const MAX_MUTATION_HISTORY = 200;
 const WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const DEMO_USERS = new Map<string, DemoUser>([
+  [
+    "usr_assanali",
+    {
+      displayName: "Assanali",
+      password: "demo-assanali",
+      workspaceIds: ["ws_123"]
+    }
+  ],
+  [
+    "usr_alaa",
+    {
+      displayName: "Alaa",
+      password: "demo-alaa",
+      workspaceIds: ["ws_123"]
+    }
+  ],
+  [
+    "usr_dachi",
+    {
+      displayName: "Dachi",
+      password: "demo-dachi",
+      workspaceIds: ["ws_123"]
+    }
+  ],
+  [
+    "usr_viewer",
+    {
+      displayName: "Viewer",
+      password: "demo-viewer",
+      workspaceIds: ["ws_other"]
+    }
+  ]
+]);
 
 const json = (response: ServerResponse, statusCode: number, body: unknown): void => {
   response.statusCode = statusCode;
@@ -123,6 +177,17 @@ const readJsonBody = async (request: IncomingMessage): Promise<unknown> =>
     request.on("error", reject);
   });
 
+const getBearerToken = (request: IncomingMessage): string | null => {
+  const authorization = request.headers.authorization;
+
+  if (typeof authorization !== "string") {
+    return null;
+  }
+
+  const match = authorization.match(/^Bearer\s+(.+)$/u);
+  return match ? match[1].trim() : null;
+};
+
 const base64UrlEncode = (value: Buffer | string): string =>
   Buffer.from(value)
     .toString("base64")
@@ -137,7 +202,7 @@ const base64UrlDecode = (value: string): Buffer => {
   return Buffer.from(padded, "base64");
 };
 
-const signJwt = (payload: SessionTokenPayload): string => {
+const signJwt = (payload: SignedTokenPayload): string => {
   const header = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const body = base64UrlEncode(JSON.stringify(payload));
   const signature = base64UrlEncode(
@@ -146,7 +211,7 @@ const signJwt = (payload: SessionTokenPayload): string => {
   return `${header}.${body}.${signature}`;
 };
 
-const verifyJwt = (token: string): { ok: true; value: SessionTokenPayload } | { ok: false; reason: string } => {
+const verifyJwt = (token: string): { ok: true; value: SignedTokenPayload } | { ok: false; reason: string } => {
   const segments = token.split(".");
 
   if (segments.length !== 3) {
@@ -188,21 +253,72 @@ const verifyJwt = (token: string): { ok: true; value: SessionTokenPayload } | { 
   if (
     typeof parsedPayload !== "object" ||
     parsedPayload === null ||
-    typeof (parsedPayload as SessionTokenPayload).sub !== "string" ||
-    typeof (parsedPayload as SessionTokenPayload).name !== "string" ||
-    typeof (parsedPayload as SessionTokenPayload).documentId !== "string" ||
-    typeof (parsedPayload as SessionTokenPayload).sessionId !== "string" ||
-    typeof (parsedPayload as SessionTokenPayload).iat !== "number" ||
-    typeof (parsedPayload as SessionTokenPayload).exp !== "number"
+    typeof (parsedPayload as SignedTokenPayload).sub !== "string" ||
+    typeof (parsedPayload as SignedTokenPayload).name !== "string" ||
+    typeof (parsedPayload as SignedTokenPayload).iat !== "number" ||
+    typeof (parsedPayload as SignedTokenPayload).exp !== "number" ||
+    typeof (parsedPayload as SignedTokenPayload).tokenUse !== "string"
   ) {
     return { ok: false, reason: "Token payload is invalid." };
   }
 
-  if ((parsedPayload as SessionTokenPayload).exp <= Math.floor(Date.now() / 1000)) {
+  const tokenPayload = parsedPayload as SignedTokenPayload;
+
+  if (
+    tokenPayload.tokenUse === "api_access" &&
+    !Array.isArray(tokenPayload.workspaceIds)
+  ) {
+    return { ok: false, reason: "Access token payload is invalid." };
+  }
+
+  if (
+    tokenPayload.tokenUse === "collab_session" &&
+    (typeof tokenPayload.documentId !== "string" || typeof tokenPayload.sessionId !== "string")
+  ) {
+    return { ok: false, reason: "Session token payload is invalid." };
+  }
+
+  if (tokenPayload.tokenUse !== "api_access" && tokenPayload.tokenUse !== "collab_session") {
+    return { ok: false, reason: "Token use is not supported." };
+  }
+
+  if (tokenPayload.exp <= Math.floor(Date.now() / 1000)) {
     return { ok: false, reason: "Token has expired." };
   }
 
-  return { ok: true, value: parsedPayload as SessionTokenPayload };
+  return { ok: true, value: tokenPayload };
+};
+
+const verifyAccessToken = (
+  token: string
+): { ok: true; value: AccessTokenPayload } | { ok: false; reason: string } => {
+  const verified = verifyJwt(token);
+
+  if (!verified.ok) {
+    return verified;
+  }
+
+  if (verified.value.tokenUse !== "api_access") {
+    return { ok: false, reason: "Token is not an API access token." };
+  }
+
+  return { ok: true, value: verified.value };
+};
+
+const verifySessionToken = (
+  token: string
+): { ok: true; value: SessionTokenPayload } | { ok: false; reason: string } => {
+  const verified = verifyJwt(token);
+
+  if (!verified.ok) {
+    return verified;
+  }
+
+  if (verified.value.tokenUse !== "collab_session") {
+    return { ok: false, reason: "Token is not a collaboration session token." };
+  }
+
+  return { ok: true, value: verified.value };
 };
 
 const toParagraphText = (content: DocumentContent): string =>
@@ -229,6 +345,36 @@ const createCreateDocumentResponse = (workspaceId: string, title: string): Docum
     createdAt: now
   };
 };
+
+const authenticateRequest = (
+  request: IncomingMessage
+): { ok: true; value: AccessTokenPayload } | { ok: false; code: string; message: string; statusCode: number } => {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return {
+      ok: false,
+      code: "AUTH_REQUIRED",
+      message: "Bearer access token is required.",
+      statusCode: 401
+    };
+  }
+
+  const verified = verifyAccessToken(token);
+  if (!verified.ok) {
+    return {
+      ok: false,
+      code: "AUTH_INVALID_TOKEN",
+      message: verified.reason,
+      statusCode: 401
+    };
+  }
+
+  return { ok: true, value: verified.value };
+};
+
+const canAccessDocument = (user: AccessTokenPayload, document: StoredDocument): boolean =>
+  user.workspaceIds.includes(document.metadata.workspaceId);
 
 const createCollaborationState = (documentText: string): CollaborationState => ({
   mutationHistory: new Map(),
@@ -432,6 +578,57 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
       return;
     }
 
+    if (request.method === "POST" && pathname === "/v1/auth/demo-login") {
+      try {
+        const rawBody = await readJsonBody(request);
+        const parsed = parseDemoLoginRequest(rawBody);
+
+        if (!parsed.ok) {
+          json(response, 400, buildErrorEnvelope(requestId, "VALIDATION_ERROR", parsed.reason, false));
+          return;
+        }
+
+        const demoUser = DEMO_USERS.get(parsed.value.userId);
+        if (!demoUser || demoUser.password !== parsed.value.password) {
+          json(
+            response,
+            401,
+            buildErrorEnvelope(
+              requestId,
+              "AUTH_INVALID_CREDENTIALS",
+              "Demo credentials are invalid.",
+              false
+            )
+          );
+          return;
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        const accessToken = signJwt({
+          tokenUse: "api_access",
+          sub: parsed.value.userId,
+          name: demoUser.displayName,
+          workspaceIds: demoUser.workspaceIds,
+          iat: now,
+          exp: now + ACCESS_TOKEN_TTL_SECONDS
+        });
+
+        json(response, 200, {
+          accessToken,
+          userId: parsed.value.userId,
+          displayName: demoUser.displayName,
+          workspaceIds: demoUser.workspaceIds,
+          issuedAt: new Date(now * 1000).toISOString(),
+          expiresAt: new Date((now + ACCESS_TOKEN_TTL_SECONDS) * 1000).toISOString()
+        });
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected request parsing error.";
+        json(response, 400, buildErrorEnvelope(requestId, "MALFORMED_REQUEST", message, false));
+        return;
+      }
+    }
+
     if (request.method === "POST" && pathname === "/v1/documents") {
       try {
         const rawBody = await readJsonBody(request);
@@ -488,11 +685,37 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           return;
         }
 
+        const authenticatedUser = authenticateRequest(request);
+        if (!authenticatedUser.ok) {
+          json(
+            response,
+            authenticatedUser.statusCode,
+            buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+          );
+          return;
+        }
+
+        if (!canAccessDocument(authenticatedUser.value, found)) {
+          json(
+            response,
+            403,
+            buildErrorEnvelope(
+              requestId,
+              "ACCESS_FORBIDDEN",
+              `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+              false,
+              { workspaceId: found.metadata.workspaceId }
+            )
+          );
+          return;
+        }
+
         const now = Math.floor(Date.now() / 1000);
         const sessionId = `ses_${randomUUID().slice(0, 8)}`;
         const sessionToken = signJwt({
-          sub: parsed.value.userId,
-          name: parsed.value.displayName,
+          tokenUse: "collab_session",
+          sub: authenticatedUser.value.sub,
+          name: authenticatedUser.value.name,
           documentId,
           sessionId,
           iat: now,
@@ -628,7 +851,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
       return;
     }
 
-    const verifiedToken = verifyJwt(token);
+    const verifiedToken = verifySessionToken(token);
     if (!verifiedToken.ok) {
       writeUpgradeResponse(
         socket,

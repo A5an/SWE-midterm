@@ -52,9 +52,21 @@ export interface CollaborationParticipant {
   activity: CollaborationActivity;
 }
 
-export interface CollaborationSessionRequest {
+export interface DemoLoginRequest {
+  userId: string;
+  password: string;
+}
+
+export interface DemoLoginResponse {
+  accessToken: string;
   userId: string;
   displayName: string;
+  workspaceIds: string[];
+  issuedAt: string;
+  expiresAt: string;
+}
+
+export interface CollaborationSessionRequest {
 }
 
 export interface CollaborationSessionResponse {
@@ -201,22 +213,32 @@ export const parseCollaborationSessionRequest = (
   if (!isRecord(value)) {
     return { ok: false, reason: "Request body must be a JSON object." };
   }
+  return {
+    ok: true,
+    value: {}
+  };
+};
 
-  const { userId, displayName } = value;
+export const parseDemoLoginRequest = (value: unknown): ParseResult<DemoLoginRequest> => {
+  if (!isRecord(value)) {
+    return { ok: false, reason: "Request body must be a JSON object." };
+  }
+
+  const { userId, password } = value;
 
   if (!isNonEmptyString(userId)) {
     return { ok: false, reason: "userId must be a non-empty string." };
   }
 
-  if (!isNonEmptyString(displayName)) {
-    return { ok: false, reason: "displayName must be a non-empty string." };
+  if (!isNonEmptyString(password)) {
+    return { ok: false, reason: "password must be a non-empty string." };
   }
 
   return {
     ok: true,
     value: {
       userId,
-      displayName
+      password
     }
   };
 };
@@ -345,6 +367,22 @@ export const isCollaborationSessionResponse = (
     Number.isInteger(value.serverRevision) &&
     Array.isArray(value.presence) &&
     value.presence.every((participant) => isCollaborationParticipant(participant)) &&
+    isIsoDateString(value.issuedAt) &&
+    isIsoDateString(value.expiresAt)
+  );
+};
+
+export const isDemoLoginResponse = (value: unknown): value is DemoLoginResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.accessToken) &&
+    isNonEmptyString(value.userId) &&
+    isNonEmptyString(value.displayName) &&
+    Array.isArray(value.workspaceIds) &&
+    value.workspaceIds.every((workspaceId) => isNonEmptyString(workspaceId)) &&
     isIsoDateString(value.issuedAt) &&
     isIsoDateString(value.expiresAt)
   );
