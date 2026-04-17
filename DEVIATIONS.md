@@ -1,6 +1,6 @@
 # Assignment 1 to Assignment 2 Deviations
 
-Last updated: 2026-04-14
+Last updated: 2026-04-17
 
 ## Why this file exists
 Assignment 2 explicitly requires documenting all differences between the Assignment 1 design and final implementation.
@@ -21,6 +21,7 @@ Rule: no silent deviations.
 | D-003 | planned | Part 3 timeline targets final quality gate on 2026-04-24 | Team execution is re-baselined to 2026-04-19 submission window | Actual Assignment 2 deadline is earlier than Part 3 milestone assumptions | Improvement (realistic planning) | Requires strict baseline-first delivery and earlier quality freeze | Team lead | 2026-04-14 | `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:169-174`; `docs/project-management/Assignment2_Implementation_Plan.md:5-88` |
 | D-004 | implemented | Part 3 planned F1 by 2026-04-10 and F2 by 2026-04-14 | Repository remained PoC-level beyond those milestone dates | Delivery slip from original schedule | Compromise (schedule slip) | Raises rubric risk unless recovered with explicit replan and evidence discipline | Team lead | 2026-04-14 | `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:169-171`; `README.md:11-14` |
 | D-005 | implemented | A1 architecture models full collaboration + AI containers and flows | Current codebase still has PoC-only endpoints with placeholder collaboration and AI services | A1 Part 4 PoC intentionally focused on API contract skeleton | Neutral for A1; high risk for A2 if not closed quickly | Direct impact on Core/Collab/AI rubric bands until implementation catches up | Assanali, Dachi | 2026-04-16 | `README.md:11-14`; `apps/collab/README.md:3-8`; `apps/ai-worker/README.md:3-8` |
+| D-006 | implemented | Part 2 container design separates collaboration into `apps/collab` | Assignment 2 baseline collaboration currently runs inside `apps/api` with an in-memory room model and manual WebSocket transport | Keeps the current repo runnable with one backend process while delivering baseline WebSocket auth, presence, and reconnect first | Compromise (temporary deployment simplification) | Baseline collaboration acceptance is met, but service isolation and independent scaling are deferred | Assanali | 2026-04-17 | `apps/api/src/server.ts`; `apps/api/src/contract-test.ts`; `apps/web/src/App.ts`; `apps/collab/README.md`; `docs/evidence/LIN-TEA-16/summary.md` |
 
 ## Schedule Deviation Details (Rebaseline on 2026-04-14)
 
