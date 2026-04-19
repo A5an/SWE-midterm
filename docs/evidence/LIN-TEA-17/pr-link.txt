@@ -1,2 +1,2 @@
 Draft PR: https://github.com/A5an/SWE-midterm/pull/8
-Status: waiting for UI recording evidence before marking ready for review.
+Status: video evidence added. Ready to mark PR ready for review once draft state is removed in GitHub UI.

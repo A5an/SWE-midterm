@@ -19,5 +19,6 @@ Branch: `feat/LIN-TEA-17-ai-streaming`
 - `typecheck-log.txt`: repo typecheck output.
 - `build-log.txt`: repo build output.
 - `ai-flow-transcript.md`: short user-flow transcript for the AI suggestion lifecycle.
+- `video-note.md`: final UI recording link for the AI flow demo.
 - `commit-hash.txt`: current repository commit hash.
-- `pr-link.txt`: placeholder for the future PR URL.
+- `pr-link.txt`: current GitHub PR URL and status note.
