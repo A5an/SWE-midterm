@@ -260,6 +260,20 @@ const loginDemoUser = async (baseUrl: string, userId: string, password: string):
   return body as AuthSession;
 };
 
+const loginDemoUsernameAlias = async (baseUrl: string, username: string, password: string): Promise<AuthSession> => {
+  const response = await fetch(`${baseUrl}/v1/auth/demo-login`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ username, password })
+  });
+
+  assert.equal(response.status, 200, "Demo login must accept username as an alias for userId.");
+  const body = (await response.json()) as unknown;
+  assert.equal(isDemoLoginResponse(body), true, "Username alias login must match the documented auth contract.");
+
+  return body as AuthSession;
+};
+
 const main = async (): Promise<void> => {
   const baseUrl = await listen();
   const address = server.address() as AddressInfo;
@@ -291,6 +305,8 @@ const main = async (): Promise<void> => {
   );
 
   const owner = await loginDemoUser(baseUrl, "usr_assanali", "demo-assanali");
+  const ownerViaUsernameAlias = await loginDemoUsernameAlias(baseUrl, "usr_assanali", "demo-assanali");
+  assert.equal(ownerViaUsernameAlias.userId, owner.userId, "Username alias login must normalize to the same user.");
   const workspaceEditor = await loginDemoUser(baseUrl, "usr_dachi", "demo-dachi");
   const editor = await loginDemoUser(baseUrl, "usr_editor", "demo-editor");
   const viewer = await loginDemoUser(baseUrl, "usr_viewer", "demo-viewer");
