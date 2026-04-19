@@ -1,6 +1,6 @@
 # Assignment 1 to Assignment 2 Deviations
 
-Last updated: 2026-04-14
+Last updated: 2026-04-19
 
 ## Why this file exists
 Assignment 2 explicitly requires documenting all differences between the Assignment 1 design and final implementation.
@@ -16,7 +16,7 @@ Rule: no silent deviations.
 
 | ID | Status | Assignment 1 Plan | Assignment 2 Reality | Why It Changed | Improvement or Compromise | Requirement Impact | Owner | Target Date | Evidence |
 |---|---|---|---|---|---|---|---|---|---|
-| D-001 | implemented | A1 architecture specifies API container as `NestJS + TypeScript` | A2 implementation now introduces a FastAPI + Python backend skeleton in `backend/` and migrates document create/load endpoints while keeping the PoC response contract stable for the frontend | Hard technology constraint in Assignment 2 | Improvement (required compliance change) | FastAPI migration preserves the baseline document contract and creates a clear path for later JWT/auth work | Dachi | 2026-04-15 | `backend/app/main.py:1`; `backend/app/routers/documents.py:1`; `backend/tests/test_documents.py:1`; `README.md:7` |
+| D-001 | in_progress | A1 architecture specifies API container as `NestJS + TypeScript` | A2 now includes a FastAPI + Python skeleton in `backend/` for the canonical `/v1/documents` create/load flow, but the repo-level runnable baseline still remains on `apps/api` until FastAPI reaches auth and collaboration-session parity | Hard technology constraint in Assignment 2 plus merge-safety for the current frontend/demo baseline | Compromise (phased migration) | Establishes the FastAPI direction without regressing the existing `/v1/auth/demo-login` and `/v1/documents/{id}/sessions` baseline; full cutover remains pending parity work | Dachi | 2026-04-19 | `docs/architecture/Part2_System_Architecture.md:64`; `apps/api/src/server.ts:101`; `backend/app/main.py:1`; `backend/app/routers/documents.py:65`; `docs/evidence/LIN-TEA-8/README.md:1` |
 | D-002 | planned | A1 role model includes `owner/editor/commenter/viewer` | A2 baseline sequencing prioritizes mandatory `owner/editor/viewer` enforcement first; `commenter` deferred until baseline completion | Deadline pressure and baseline-first strategy | Compromise (scope sequencing) | Server-side RBAC for required roles must be complete before optional role expansion | Dachi, Alaa | 2026-04-17 | `packages/contracts/src/index.ts:1`; `README.md:14`; `apps/api/src/server.ts:101-174` |
 | D-003 | planned | Part 3 timeline targets final quality gate on 2026-04-24 | Team execution is re-baselined to 2026-04-19 submission window | Actual Assignment 2 deadline is earlier than Part 3 milestone assumptions | Improvement (realistic planning) | Requires strict baseline-first delivery and earlier quality freeze | Team lead | 2026-04-14 | `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:169-174`; `docs/project-management/Assignment2_Implementation_Plan.md:5-88` |
 | D-004 | implemented | Part 3 planned F1 by 2026-04-10 and F2 by 2026-04-14 | Repository remained PoC-level beyond those milestone dates | Delivery slip from original schedule | Compromise (schedule slip) | Raises rubric risk unless recovered with explicit replan and evidence discipline | Team lead | 2026-04-14 | `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:169-171`; `README.md:11-14` |

@@ -8,9 +8,9 @@
   ],
   "scripts": {
     "docs:build": "node scripts/generate-complete-documentation.mjs",
-    "dev:api": "python3 -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port ${PORT:-4000}",
+    "dev:api": "npm --workspace @swe-midterm/api run dev",
     "dev:web": "[ -d apps/web ] && npm --workspace @swe-midterm/web run dev || echo \"apps/web is not present on this branch\"",
-    "test": "python3 -m pytest backend/tests",
+    "test": "npm --workspace @swe-midterm/api run test",
     "typecheck": "npm --workspace @swe-midterm/contracts run typecheck && npm --workspace @swe-midterm/api run typecheck && ([ -d apps/web ] && npm --workspace @swe-midterm/web run typecheck || true)",
     "build": "npm --workspace @swe-midterm/contracts run build && ([ -d apps/web ] && npm --workspace @swe-midterm/web run build || true)"
   },

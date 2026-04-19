@@ -1,8 +1,8 @@
 GET /health
-{"status":"ok","requestId":"req_559590aed9bb"}
+{"status":"ok","requestId":"req_427e280fcfd1"}
 
 POST /v1/documents
-{"documentId":"doc_394ddb15","workspaceId":"ws_123","title":"Q3 Product Brief","ownerRole":"owner","currentVersionId":"ver_001","createdAt":"2026-04-17T20:56:50.307481Z"}
+{"documentId":"doc_8977d143","workspaceId":"ws_123","title":"Q3 Product Brief","ownerRole":"owner","currentVersionId":"ver_001","createdAt":"2026-04-19T14:30:40.747620Z"}
 
-GET /v1/documents/doc_394ddb15
-{"documentId":"doc_394ddb15","workspaceId":"ws_123","title":"Q3 Product Brief","ownerRole":"owner","currentVersionId":"ver_001","createdAt":"2026-04-17T20:56:50.307481Z","content":{"type":"doc","content":[{"type":"paragraph","text":"Initial content from FastAPI."}]},"updatedAt":"2026-04-17T20:56:50.307481Z"}
+GET /v1/documents/doc_8977d143
+{"documentId":"doc_8977d143","workspaceId":"ws_123","title":"Q3 Product Brief","ownerRole":"owner","currentVersionId":"ver_001","createdAt":"2026-04-19T14:30:40.747620Z","content":{"type":"doc","content":[{"type":"paragraph","text":"Initial content from FastAPI."}]},"updatedAt":"2026-04-19T14:30:40.747620Z"}

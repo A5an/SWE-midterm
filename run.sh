@@ -9,11 +9,6 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is required but not found in PATH." >&2
-  exit 1
-fi
-
 cleanup() {
   if [[ -n "${API_PID:-}" ]]; then
     kill "$API_PID" 2>/dev/null || true
@@ -25,7 +20,7 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-echo "Starting FastAPI backend (http://localhost:4000) and web app (http://localhost:5173)..."
+echo "Starting API (http://localhost:4000) and web app (http://localhost:5173)..."
 npm run dev:api &
 API_PID=$!
 npm run dev:web &
