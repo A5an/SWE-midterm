@@ -20,6 +20,21 @@ import {
   normalizeEditorSelection,
   type EditorSelectionRange
 } from "./ai.ts";
+import {
+  buildAuthRouteHash,
+  clearPersistedAuthSession,
+  fetchCurrentUserProfile,
+  isApiErrorEnvelope as isFastApiErrorEnvelope,
+  loginAuthUser,
+  parseAuthRoute,
+  persistAuthSession,
+  refreshAuthSession,
+  registerAuthUser,
+  restorePersistedAuthSession,
+  type AuthRoute,
+  type AuthUserProfile,
+  type PersistedAuthSession
+} from "./auth.ts";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 
@@ -101,6 +116,108 @@ export const mountApp = (root: HTMLElement): void => {
         <label class="field-label" for="apiBase">API Base URL</label>
         <input id="apiBase" class="text-input" value="${initialApiBase}" />
         <p class="hint">Default backend URL is http://localhost:4000</p>
+      </section>
+
+      <section class="panel">
+        <h2>Auth Baseline</h2>
+        <div class="two-column auth-header-grid">
+          <div class="form-grid">
+            <label class="field-label" for="authApiBase">Auth API Base URL</label>
+            <input id="authApiBase" class="text-input" value="${initialApiBase}" />
+            <p class="hint">
+              Point this to the FastAPI backend that exposes <code>/v1/auth/register</code>,
+              <code>/v1/auth/login</code>, <code>/v1/auth/refresh</code>, and the protected
+              <code>/v1/me</code> route.
+            </p>
+          </div>
+          <div class="auth-route-nav">
+            <div class="button-row button-row-left">
+              <button id="authLoginRouteButton" class="button button-secondary" type="button">Login Route</button>
+              <button id="authRegisterRouteButton" class="button button-secondary" type="button">Register Route</button>
+              <button id="authWorkspaceRouteButton" class="button button-primary" type="button">Protected Workspace</button>
+            </div>
+            <p class="hint">
+              This route state is stored in the URL hash so you can refresh directly into the protected workspace.
+            </p>
+          </div>
+        </div>
+
+        <div class="session-bar">
+          <div>
+            <span class="field-label">Route</span>
+            <p id="authRouteState" class="session-value">/login</p>
+          </div>
+          <div>
+            <span class="field-label">JWT Session</span>
+            <p id="authSessionState" class="session-value">Signed out</p>
+          </div>
+          <div>
+            <span class="field-label">Access Expiry</span>
+            <p id="authExpiryState" class="session-value">-</p>
+          </div>
+        </div>
+
+        <p id="authLifecycleState" class="hint">No saved auth session.</p>
+
+        <section id="authLoginPanel" class="auth-route-panel">
+          <h3>Login</h3>
+          <form id="authLoginForm" class="form-grid auth-form-grid">
+            <label class="field-label" for="authLoginEmail">Email</label>
+            <input id="authLoginEmail" class="text-input" type="email" placeholder="user@example.com" required />
+
+            <label class="field-label" for="authLoginPassword">Password</label>
+            <input
+              id="authLoginPassword"
+              class="text-input"
+              type="password"
+              placeholder="At least 8 characters"
+              required
+            />
+
+            <div class="button-row button-row-left">
+              <button type="submit" class="button button-primary">Sign In</button>
+              <button id="authRestoreButton" type="button" class="button button-secondary">Restore Saved Session</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="authRegisterPanel" class="auth-route-panel" hidden>
+          <h3>Register</h3>
+          <form id="authRegisterForm" class="form-grid auth-form-grid">
+            <label class="field-label" for="authRegisterName">Display Name</label>
+            <input id="authRegisterName" class="text-input" placeholder="Assanali" required />
+
+            <label class="field-label" for="authRegisterEmail">Email</label>
+            <input id="authRegisterEmail" class="text-input" type="email" placeholder="user@example.com" required />
+
+            <label class="field-label" for="authRegisterPassword">Password</label>
+            <input
+              id="authRegisterPassword"
+              class="text-input"
+              type="password"
+              placeholder="At least 8 characters"
+              required
+            />
+
+            <div class="button-row button-row-left">
+              <button type="submit" class="button button-primary">Create Account</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="authWorkspacePanel" class="auth-route-panel" hidden>
+          <h3>Protected Workspace</h3>
+          <p class="hint">
+            This route revalidates the persisted JWT session against <code>/v1/me</code>. Refresh the page here to prove
+            session persistence, and use a short backend TTL to demonstrate graceful expiry handling.
+          </p>
+          <div class="button-row button-row-left">
+            <button id="authProtectedFetchButton" class="button button-primary" type="button">Load Protected Profile</button>
+            <button id="authRefreshSessionButton" class="button button-secondary" type="button">Refresh Session</button>
+            <button id="authSignOutButton" class="button button-ghost" type="button">Sign Out</button>
+          </div>
+          <pre id="authProfileOutput" class="output">Protected profile will appear here after sign-in.</pre>
+        </section>
       </section>
 
       <div class="two-column">
@@ -269,6 +386,29 @@ export const mountApp = (root: HTMLElement): void => {
   `;
 
   const apiBaseInput = root.querySelector<HTMLInputElement>("#apiBase");
+  const authApiBaseInput = root.querySelector<HTMLInputElement>("#authApiBase");
+  const authLoginRouteButton = root.querySelector<HTMLButtonElement>("#authLoginRouteButton");
+  const authRegisterRouteButton = root.querySelector<HTMLButtonElement>("#authRegisterRouteButton");
+  const authWorkspaceRouteButton = root.querySelector<HTMLButtonElement>("#authWorkspaceRouteButton");
+  const authRouteState = root.querySelector<HTMLElement>("#authRouteState");
+  const authSessionState = root.querySelector<HTMLElement>("#authSessionState");
+  const authExpiryState = root.querySelector<HTMLElement>("#authExpiryState");
+  const authLifecycleState = root.querySelector<HTMLElement>("#authLifecycleState");
+  const authLoginPanel = root.querySelector<HTMLElement>("#authLoginPanel");
+  const authRegisterPanel = root.querySelector<HTMLElement>("#authRegisterPanel");
+  const authWorkspacePanel = root.querySelector<HTMLElement>("#authWorkspacePanel");
+  const authLoginForm = root.querySelector<HTMLFormElement>("#authLoginForm");
+  const authRegisterForm = root.querySelector<HTMLFormElement>("#authRegisterForm");
+  const authLoginEmailInput = root.querySelector<HTMLInputElement>("#authLoginEmail");
+  const authLoginPasswordInput = root.querySelector<HTMLInputElement>("#authLoginPassword");
+  const authRegisterNameInput = root.querySelector<HTMLInputElement>("#authRegisterName");
+  const authRegisterEmailInput = root.querySelector<HTMLInputElement>("#authRegisterEmail");
+  const authRegisterPasswordInput = root.querySelector<HTMLInputElement>("#authRegisterPassword");
+  const authRestoreButton = root.querySelector<HTMLButtonElement>("#authRestoreButton");
+  const authProtectedFetchButton = root.querySelector<HTMLButtonElement>("#authProtectedFetchButton");
+  const authRefreshSessionButton = root.querySelector<HTMLButtonElement>("#authRefreshSessionButton");
+  const authSignOutButton = root.querySelector<HTMLButtonElement>("#authSignOutButton");
+  const authProfileOutput = root.querySelector<HTMLElement>("#authProfileOutput");
   const createForm = root.querySelector<HTMLFormElement>("#createForm");
   const workspaceIdInput = root.querySelector<HTMLInputElement>("#workspaceId");
   const titleInput = root.querySelector<HTMLInputElement>("#title");
@@ -308,6 +448,29 @@ export const mountApp = (root: HTMLElement): void => {
 
   if (
     !apiBaseInput ||
+    !authApiBaseInput ||
+    !authLoginRouteButton ||
+    !authRegisterRouteButton ||
+    !authWorkspaceRouteButton ||
+    !authRouteState ||
+    !authSessionState ||
+    !authExpiryState ||
+    !authLifecycleState ||
+    !authLoginPanel ||
+    !authRegisterPanel ||
+    !authWorkspacePanel ||
+    !authLoginForm ||
+    !authRegisterForm ||
+    !authLoginEmailInput ||
+    !authLoginPasswordInput ||
+    !authRegisterNameInput ||
+    !authRegisterEmailInput ||
+    !authRegisterPasswordInput ||
+    !authRestoreButton ||
+    !authProtectedFetchButton ||
+    !authRefreshSessionButton ||
+    !authSignOutButton ||
+    !authProfileOutput ||
     !createForm ||
     !workspaceIdInput ||
     !titleInput ||
@@ -361,6 +524,8 @@ export const mountApp = (root: HTMLElement): void => {
         workspaceIds: string[];
       }
     | null = null;
+  let fastapiSession: PersistedAuthSession | null = null;
+  let fastapiProfile: AuthUserProfile | null = null;
   let pendingMutation: PendingMutation | null = null;
   let sessionInfo:
     | {
@@ -384,6 +549,8 @@ export const mountApp = (root: HTMLElement): void => {
   };
 
   const currentApiBase = (): string => apiBaseInput.value.trim().replace(/\/+$/, "");
+  const currentAuthApiBase = (): string => authApiBaseInput.value.trim().replace(/\/+$/, "");
+  const currentAuthRoute = (): AuthRoute => parseAuthRoute(window.location.hash);
 
   const currentAuthHeaders = (includeJson = false): Record<string, string> => {
     const headers: Record<string, string> = {};
@@ -397,6 +564,165 @@ export const mountApp = (root: HTMLElement): void => {
     }
 
     return headers;
+  };
+
+  const setAuthLifecycleMessage = (message: string): void => {
+    authLifecycleState.textContent = message;
+  };
+
+  const renderProtectedProfile = (): void => {
+    authProfileOutput.textContent = fastapiProfile
+      ? JSON.stringify(
+          {
+            userId: fastapiProfile.userId,
+            email: fastapiProfile.email,
+            displayName: fastapiProfile.displayName,
+            workspaceRole: fastapiProfile.workspaceRole,
+            createdAt: fastapiProfile.createdAt
+          },
+          null,
+          2
+        )
+      : "Protected profile will appear here after sign-in.";
+  };
+
+  const updateFastapiAuthState = (): void => {
+    const route = currentAuthRoute();
+    authRouteState.textContent =
+      route === "workspace" ? "/workspace (protected)" : route === "register" ? "/register" : "/login";
+    authSessionState.textContent = fastapiSession
+      ? `Signed in as ${fastapiSession.user.displayName}`
+      : "Signed out";
+    authExpiryState.textContent = fastapiSession
+      ? new Date(fastapiSession.tokens.accessTokenExpiresAt).toLocaleString()
+      : "-";
+    authProtectedFetchButton.disabled = fastapiSession === null;
+    authRefreshSessionButton.disabled = fastapiSession === null;
+    authSignOutButton.disabled = fastapiSession === null;
+  };
+
+  const applyFastapiSession = (
+    session: PersistedAuthSession | null,
+    options?: {
+      persist?: boolean;
+    }
+  ): void => {
+    fastapiSession = session;
+    fastapiProfile = session?.user ?? null;
+
+    if (session) {
+      authApiBaseInput.value = session.baseUrl;
+      if (options?.persist !== false) {
+        persistAuthSession(window.localStorage, session);
+      }
+    } else if (options?.persist !== false) {
+      clearPersistedAuthSession(window.localStorage);
+    }
+
+    updateFastapiAuthState();
+    renderProtectedProfile();
+  };
+
+  const navigateAuthRoute = (route: AuthRoute): void => {
+    const nextHash = buildAuthRouteHash(route);
+    if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash;
+      return;
+    }
+    renderAuthRoute();
+  };
+
+  const renderAuthRoute = (): void => {
+    let route = currentAuthRoute();
+
+    if (route === "workspace" && !fastapiSession) {
+      route = "login";
+      if (window.location.hash !== buildAuthRouteHash("login")) {
+        window.location.hash = buildAuthRouteHash("login");
+      }
+      setAuthLifecycleMessage("Protected route blocked: sign in first so /v1/me can be authorized.");
+    }
+
+    authLoginPanel.hidden = route !== "login";
+    authRegisterPanel.hidden = route !== "register";
+    authWorkspacePanel.hidden = route !== "workspace";
+    authLoginRouteButton.disabled = route === "login";
+    authRegisterRouteButton.disabled = route === "register";
+    authWorkspaceRouteButton.disabled = route === "workspace";
+    updateFastapiAuthState();
+  };
+
+  const describeFastapiError = (prefix: string, error: unknown): string => {
+    if (isFastApiErrorEnvelope(error)) {
+      return `${prefix}: ${error.error.code} - ${error.error.message} (requestId: ${error.error.requestId})`;
+    }
+
+    if (error instanceof Error) {
+      return `${prefix}: ${error.message}`;
+    }
+
+    return `${prefix}: unexpected response format.`;
+  };
+
+  const loadProtectedProfile = async (
+    reason = "Protected workspace loaded through /v1/me."
+  ): Promise<void> => {
+    if (!fastapiSession) {
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage("Protected route blocked: sign in first so /v1/me can be authorized.");
+      return;
+    }
+
+    try {
+      const profile = await fetchCurrentUserProfile(fastapiSession);
+      const nextSession = { ...fastapiSession, user: profile };
+      applyFastapiSession(nextSession);
+      setAuthLifecycleMessage(reason);
+      return;
+    } catch (error) {
+      if (
+        !isFastApiErrorEnvelope(error) ||
+        (error.error.code !== "AUTHN_TOKEN_EXPIRED" && error.error.code !== "AUTHN_INVALID_TOKEN")
+      ) {
+        setAuthLifecycleMessage(describeFastapiError("Protected route failed", error));
+        return;
+      }
+    }
+
+    try {
+      const refreshedSession = await refreshAuthSession(fastapiSession);
+      applyFastapiSession(refreshedSession);
+      const profile = await fetchCurrentUserProfile(refreshedSession);
+      applyFastapiSession({
+        ...refreshedSession,
+        user: profile
+      });
+      setAuthLifecycleMessage("Access token expired. Session refreshed and protected route recovered gracefully.");
+    } catch (refreshError) {
+      applyFastapiSession(null);
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage(describeFastapiError("Session expired", refreshError));
+    }
+  };
+
+  const restoreFastapiSession = async (
+    statusPrefix = "Restoring saved auth session..."
+  ): Promise<void> => {
+    setAuthLifecycleMessage(statusPrefix);
+    const result = await restorePersistedAuthSession(window.localStorage, currentAuthApiBase());
+    applyFastapiSession(result.session, {
+      persist: false
+    });
+    setAuthLifecycleMessage(result.message);
+    renderAuthRoute();
+
+    if (result.session && currentAuthRoute() === "workspace") {
+      await loadProtectedProfile(
+        result.recoveredWithRefresh
+          ? "Protected workspace restored after refreshing expired credentials."
+          : "Protected workspace restored from the saved session."
+      );
+    }
   };
 
   const updateRevisionState = (revision: number): void => {
@@ -1240,6 +1566,98 @@ export const mountApp = (root: HTMLElement): void => {
     await refreshAiHistory();
   };
 
+  authLoginRouteButton.addEventListener("click", () => {
+    navigateAuthRoute("login");
+  });
+
+  authRegisterRouteButton.addEventListener("click", () => {
+    navigateAuthRoute("register");
+  });
+
+  authWorkspaceRouteButton.addEventListener("click", () => {
+    navigateAuthRoute("workspace");
+  });
+
+  authLoginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setAuthLifecycleMessage("Signing in against the FastAPI auth backend...");
+
+    try {
+      const session = await loginAuthUser(currentAuthApiBase(), {
+        email: authLoginEmailInput.value.trim(),
+        password: authLoginPasswordInput.value
+      });
+      applyFastapiSession(session);
+      navigateAuthRoute("workspace");
+      await loadProtectedProfile("Signed in successfully. Protected workspace is authorized.");
+    } catch (error) {
+      setAuthLifecycleMessage(describeFastapiError("Login failed", error));
+    }
+  });
+
+  authRegisterForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setAuthLifecycleMessage("Creating account against the FastAPI auth backend...");
+
+    try {
+      const session = await registerAuthUser(currentAuthApiBase(), {
+        displayName: authRegisterNameInput.value.trim(),
+        email: authRegisterEmailInput.value.trim(),
+        password: authRegisterPasswordInput.value
+      });
+      applyFastapiSession(session);
+      navigateAuthRoute("workspace");
+      await loadProtectedProfile("Registration completed. Protected workspace is authorized.");
+    } catch (error) {
+      setAuthLifecycleMessage(describeFastapiError("Registration failed", error));
+    }
+  });
+
+  authRestoreButton.addEventListener("click", async () => {
+    await restoreFastapiSession();
+  });
+
+  authProtectedFetchButton.addEventListener("click", async () => {
+    await loadProtectedProfile("Protected route reloaded through /v1/me.");
+  });
+
+  authRefreshSessionButton.addEventListener("click", async () => {
+    if (!fastapiSession) {
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage("Refresh blocked: sign in first.");
+      return;
+    }
+
+    setAuthLifecycleMessage("Refreshing JWT session...");
+
+    try {
+      const refreshedSession = await refreshAuthSession(fastapiSession);
+      applyFastapiSession(refreshedSession);
+      await loadProtectedProfile("Session refreshed. Protected route still authorized.");
+    } catch (error) {
+      applyFastapiSession(null);
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage(describeFastapiError("Refresh failed", error));
+    }
+  });
+
+  authSignOutButton.addEventListener("click", () => {
+    applyFastapiSession(null);
+    navigateAuthRoute("login");
+    setAuthLifecycleMessage("Signed out and cleared the persisted auth session.");
+  });
+
+  authApiBaseInput.addEventListener("change", () => {
+    authApiBaseInput.value = currentAuthApiBase();
+  });
+
+  window.addEventListener("hashchange", () => {
+    renderAuthRoute();
+    if (currentAuthRoute() === "workspace" && fastapiSession && fastapiProfile === null) {
+      void loadProtectedProfile("Protected route restored after navigation.");
+    }
+  });
+
   createForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -1502,7 +1920,12 @@ export const mountApp = (root: HTMLElement): void => {
   });
   resetCollaboration(true);
   updateAuthState();
+  applyFastapiSession(null, {
+    persist: false
+  });
+  renderAuthRoute();
   documentOutput.textContent = "No document loaded yet.";
   renderAiHistory();
   renderAiState();
+  void restoreFastapiSession("Checking for a saved auth session...");
 };
