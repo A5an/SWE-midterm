@@ -1,0 +1,3 @@
+PR link: TBD
+
+Suggested branch name: feat/LIN-TEA-13-auth-ui-session-persistence

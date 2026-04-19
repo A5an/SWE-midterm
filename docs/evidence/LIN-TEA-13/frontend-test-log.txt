@@ -1,0 +1,5 @@
+> @swe-midterm/web@0.1.0 test
+> node --experimental-strip-types src/test.ts
+
+frontend-ai: helper selection/apply tests passed
+frontend-auth: persistence, refresh, and protected-route helpers passed

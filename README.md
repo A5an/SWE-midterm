@@ -79,6 +79,27 @@ Demo login credentials for the collaboration baseline:
 - `usr_editor` / `demo-editor`
 - `usr_viewer` / `demo-viewer`
 
+## FastAPI Auth Baseline UI
+
+`apps/web` now also includes a hash-routed auth workspace for the Assignment 2 frontend auth proof:
+- `#auth/login`
+- `#auth/register`
+- `#auth/workspace` (protected route)
+
+This flow targets the FastAPI backend in `backend/`, not the Node PoC API in `apps/api`.
+
+Example local startup for the auth proof:
+
+```bash
+python3 -m uvicorn backend.app.main:app --reload --port 4021
+```
+
+Then in the web UI:
+- set `Auth API Base URL` to `http://127.0.0.1:4021`
+- register or log in
+- refresh the page on `#auth/workspace` to verify persisted session restore
+- optionally shorten `JWT_ACCESS_TTL_SECONDS` to demonstrate expired-token refresh and graceful fallback to sign-in
+
 ## What to Demo (3 minutes max)
 
 1. Open the web app in two browser windows.
