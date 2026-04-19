@@ -36,6 +36,8 @@ import {
   type CollaborationServerUpdateMessage,
   type DocumentContent,
   type DocumentDetailResponse,
+  type DocumentListItem,
+  type DocumentListResponse,
   type DocumentMetadataResponse,
   type DocumentPermissionEntry,
   type DocumentPermissionsResponse,
@@ -443,6 +445,28 @@ const textToContent = (text: string): DocumentContent => ({
   ]
 });
 
+const htmlToPreviewText = (value: string): string =>
+  value
+    .replace(/<style[\s\S]*?<\/style>/giu, " ")
+    .replace(/<script[\s\S]*?<\/script>/giu, " ")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/&nbsp;/giu, " ")
+    .replace(/&amp;/giu, "&")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">")
+    .replace(/\s+/gu, " ")
+    .trim();
+
+const createDocumentPreview = (content: DocumentContent, maxLength = 140): string => {
+  const preview = htmlToPreviewText(toParagraphText(content));
+
+  if (preview.length <= maxLength) {
+    return preview;
+  }
+
+  return `${preview.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+};
+
 const createCreateDocumentResponse = (workspaceId: string, title: string): DocumentMetadataResponse => {
   const now = new Date().toISOString();
   return {
@@ -619,6 +643,39 @@ const buildPermissionsResponse = (document: StoredDocument): DocumentPermissions
     documentId: document.metadata.documentId,
     permissions
   };
+};
+
+const buildDocumentListResponse = (
+  store: Map<string, StoredDocument>,
+  user: AccessTokenPayload
+): DocumentListResponse => {
+  const documents: DocumentListItem[] = [];
+
+  for (const document of store.values()) {
+    const effectiveRole = resolveDocumentRole(user, document);
+
+    if (!effectiveRole) {
+      continue;
+    }
+
+    documents.push({
+      documentId: document.metadata.documentId,
+      workspaceId: document.metadata.workspaceId,
+      title: document.metadata.title,
+      effectiveRole,
+      createdAt: document.metadata.createdAt,
+      updatedAt: document.updatedAt,
+      preview: createDocumentPreview(document.content)
+    });
+  }
+
+  documents.sort(
+    (left, right) =>
+      Date.parse(right.updatedAt) - Date.parse(left.updatedAt) ||
+      left.title.localeCompare(right.title)
+  );
+
+  return { documents };
 };
 
 const isAiJobOwner = (user: AccessTokenPayload, job: AiJobRuntime): boolean =>
@@ -1086,18 +1143,23 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
       }
     }
 
-    if (request.method === "POST" && pathname === "/v1/documents") {
-      try {
-        const authenticatedUser = authenticateRequest(request);
-        if (!authenticatedUser.ok) {
-          json(
-            response,
-            authenticatedUser.statusCode,
-            buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
-          );
-          return;
-        }
+    if (pathname === "/v1/documents" && (request.method === "GET" || request.method === "POST")) {
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
 
+      if (request.method === "GET") {
+        json(response, 200, buildDocumentListResponse(store, authenticatedUser.value));
+        return;
+      }
+
+      try {
         const rawBody = await readJsonBody(request);
         const parsed = parseCreateDocumentRequest(rawBody);
 

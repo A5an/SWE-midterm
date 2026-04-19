@@ -40,6 +40,20 @@ export interface DocumentDetailResponse extends DocumentMetadataResponse {
   updatedAt: string;
 }
 
+export interface DocumentListItem {
+  documentId: string;
+  workspaceId: string;
+  title: string;
+  effectiveRole: SharingRole;
+  createdAt: string;
+  updatedAt: string;
+  preview: string;
+}
+
+export interface DocumentListResponse {
+  documents: DocumentListItem[];
+}
+
 export interface UpdateDocumentRequest {
   title?: string;
   content: DocumentContent;
@@ -639,6 +653,30 @@ export const isDocumentDetailResponse = (value: unknown): value is DocumentDetai
     return false;
   }
   return isDocumentContent(value.content) && isIsoDateString(value.updatedAt);
+};
+
+export const isDocumentListItem = (value: unknown): value is DocumentListItem => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.documentId) &&
+    isNonEmptyString(value.workspaceId) &&
+    isNonEmptyString(value.title) &&
+    isSharingRole(value.effectiveRole) &&
+    isIsoDateString(value.createdAt) &&
+    isIsoDateString(value.updatedAt) &&
+    typeof value.preview === "string"
+  );
+};
+
+export const isDocumentListResponse = (value: unknown): value is DocumentListResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return Array.isArray(value.documents) && value.documents.every((entry) => isDocumentListItem(entry));
 };
 
 export const isDocumentPermissionEntry = (value: unknown): value is DocumentPermissionEntry => {

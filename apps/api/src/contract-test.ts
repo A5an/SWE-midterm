@@ -8,6 +8,7 @@ import {
   isCollaborationSessionResponse,
   isDemoLoginResponse,
   isDocumentDetailResponse,
+  isDocumentListResponse,
   isDocumentMetadataResponse,
   isDocumentPermissionsResponse,
   isDocumentShareResponse
@@ -318,6 +319,20 @@ const main = async (): Promise<void> => {
   );
 
   const created = createdBody as { documentId: string };
+
+  const ownerListResponse = await fetch(`${baseUrl}/v1/documents`, {
+    headers: authHeaders(owner.accessToken)
+  });
+  assert.equal(ownerListResponse.status, 200, "Dashboard list must return 200 for authenticated users.");
+  const ownerListBody = (await ownerListResponse.json()) as unknown;
+  assert.equal(isDocumentListResponse(ownerListBody), true);
+  assert.equal(
+    (ownerListBody as { documents: Array<{ documentId: string }> }).documents.some(
+      (document) => document.documentId === created.documentId
+    ),
+    true,
+    "Created documents must appear in the authenticated dashboard list."
+  );
 
   const unauthenticatedLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`);
   assert.equal(unauthenticatedLoadResponse.status, 401, "Document load must require API auth.");

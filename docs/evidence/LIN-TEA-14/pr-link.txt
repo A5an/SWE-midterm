@@ -1,0 +1,4 @@
+PR not opened from this environment.
+
+Branch: `feat/LIN-TEA-14-rich-text-editor-autosave-dashboard`
+Suggested PR title/body are prepared in the final handoff response.
