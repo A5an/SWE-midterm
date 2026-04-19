@@ -1,14 +1,25 @@
 import "./App.css";
 import {
+  isAiHistoryResponse,
   isApiErrorEnvelope,
   isCollaborationSessionResponse,
+  isCreateAiJobResponse,
   isDemoLoginResponse,
   isDocumentDetailResponse,
   isDocumentMetadataResponse,
+  type AiHistoryRecord,
+  type AiJobStatus,
   type CollaborationParticipant,
   type CreateDocumentRequest,
   type DocumentDetailResponse
 } from "@swe-midterm/contracts";
+import {
+  applySuggestionToDocument,
+  buildAiRequestContext,
+  describeSelection,
+  normalizeEditorSelection,
+  type EditorSelectionRange
+} from "./ai.ts";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 
@@ -17,6 +28,28 @@ interface PendingMutation {
   clientSeq: number;
   mutationId: string;
   text: string;
+}
+
+interface ActiveAiJob {
+  createdAt: string;
+  decision: AiHistoryRecord["decision"];
+  documentId: string;
+  editMode: boolean;
+  feature: "rewrite" | "summarize";
+  jobId: string;
+  outputText: string;
+  selection: EditorSelectionRange;
+  sourceText: string;
+  status: AiJobStatus;
+  streamToken: string;
+  streamUrl: string;
+}
+
+interface UndoState {
+  appliedDocumentText: string;
+  jobId: string;
+  previousText: string;
+  restoredText: string;
 }
 
 const readJson = async (response: Response): Promise<unknown> => {
@@ -37,6 +70,14 @@ const toParagraphText = (document: DocumentDetailResponse): string =>
     .join("\n\n")
     .trim();
 
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 export const mountApp = (root: HTMLElement): void => {
   const initialApiBase =
     typeof import.meta.env.VITE_API_BASE_URL === "string" &&
@@ -47,11 +88,11 @@ export const mountApp = (root: HTMLElement): void => {
   root.innerHTML = `
     <div class="app-shell">
       <header class="hero">
-        <p class="eyebrow">Assignment 2 Collaboration Baseline</p>
-        <h1>Authenticated WebSocket + Presence + Reconnect Demo</h1>
+        <p class="eyebrow">Assignment 2 Collaboration + AI Baseline</p>
+        <h1>Authenticated Collaboration with Streaming AI Suggestions</h1>
         <p class="summary">
-          Sign in with a trusted demo identity, then create or load a document and join
-          as different users in two browser windows to verify presence plus reconnect-safe text sync.
+          Create or load a document, collaborate through the shared editor, then invoke AI rewrite or summarize on a selection.
+          Suggestions stream progressively, can be canceled, compared, edited, accepted, rejected, undone, and reviewed in per-document history.
         </p>
       </header>
 
@@ -173,6 +214,49 @@ export const mountApp = (root: HTMLElement): void => {
       </section>
 
       <section class="panel">
+        <h2>AI Assistant</h2>
+        <div class="two-column ai-grid">
+          <div class="form-grid">
+            <label class="field-label" for="aiInstructions">Optional instructions</label>
+            <textarea id="aiInstructions" class="text-area" rows="4" placeholder="Example: make it more concise and formal."></textarea>
+            <p id="aiSelectionState" class="hint">Load a document to select text for AI.</p>
+            <div class="button-row button-row-left">
+              <button id="rewriteButton" class="button button-primary" type="button">Rewrite Selection</button>
+              <button id="summarizeButton" class="button button-secondary" type="button">Summarize Selection</button>
+              <button id="cancelAiButton" class="button button-ghost" type="button">Cancel Stream</button>
+            </div>
+            <div class="ai-job-summary">
+              <span class="field-label">AI Job</span>
+              <p id="aiJobState" class="session-value">No active AI request.</p>
+            </div>
+          </div>
+
+          <div class="two-column compare-grid">
+            <div class="form-grid">
+              <label class="field-label" for="aiOriginal">Original</label>
+              <textarea id="aiOriginal" class="compare-textarea" rows="10" readonly></textarea>
+            </div>
+            <div class="form-grid">
+              <label class="field-label" for="aiSuggestion">Suggestion</label>
+              <textarea id="aiSuggestion" class="compare-textarea" rows="10" readonly></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="button-row button-row-left">
+          <button id="editAiButton" class="button button-secondary" type="button">Edit Suggestion</button>
+          <button id="acceptAiButton" class="button button-primary" type="button">Accept</button>
+          <button id="rejectAiButton" class="button button-ghost" type="button">Reject</button>
+          <button id="undoAiButton" class="button button-secondary" type="button">Undo Last AI Apply</button>
+        </div>
+
+        <h3>History</h3>
+        <ul id="aiHistoryList" class="history-list">
+          <li class="history-empty">No AI history for this document yet.</li>
+        </ul>
+      </section>
+
+      <section class="panel">
         <h2>Status</h2>
         <pre id="status" class="status">Ready.</pre>
       </section>
@@ -206,6 +290,19 @@ export const mountApp = (root: HTMLElement): void => {
   const revisionState = root.querySelector<HTMLElement>("#revisionState");
   const presenceList = root.querySelector<HTMLUListElement>("#presenceList");
   const collabEditor = root.querySelector<HTMLTextAreaElement>("#collabEditor");
+  const aiInstructions = root.querySelector<HTMLTextAreaElement>("#aiInstructions");
+  const aiSelectionState = root.querySelector<HTMLElement>("#aiSelectionState");
+  const rewriteButton = root.querySelector<HTMLButtonElement>("#rewriteButton");
+  const summarizeButton = root.querySelector<HTMLButtonElement>("#summarizeButton");
+  const cancelAiButton = root.querySelector<HTMLButtonElement>("#cancelAiButton");
+  const editAiButton = root.querySelector<HTMLButtonElement>("#editAiButton");
+  const acceptAiButton = root.querySelector<HTMLButtonElement>("#acceptAiButton");
+  const rejectAiButton = root.querySelector<HTMLButtonElement>("#rejectAiButton");
+  const undoAiButton = root.querySelector<HTMLButtonElement>("#undoAiButton");
+  const aiJobState = root.querySelector<HTMLElement>("#aiJobState");
+  const aiOriginal = root.querySelector<HTMLTextAreaElement>("#aiOriginal");
+  const aiSuggestion = root.querySelector<HTMLTextAreaElement>("#aiSuggestion");
+  const aiHistoryList = root.querySelector<HTMLUListElement>("#aiHistoryList");
   const statusOutput = root.querySelector<HTMLElement>("#status");
   const documentOutput = root.querySelector<HTMLElement>("#documentOutput");
 
@@ -232,6 +329,19 @@ export const mountApp = (root: HTMLElement): void => {
     !revisionState ||
     !presenceList ||
     !collabEditor ||
+    !aiInstructions ||
+    !aiSelectionState ||
+    !rewriteButton ||
+    !summarizeButton ||
+    !cancelAiButton ||
+    !editAiButton ||
+    !acceptAiButton ||
+    !rejectAiButton ||
+    !undoAiButton ||
+    !aiJobState ||
+    !aiOriginal ||
+    !aiSuggestion ||
+    !aiHistoryList ||
     !statusOutput ||
     !documentOutput
   ) {
@@ -264,6 +374,10 @@ export const mountApp = (root: HTMLElement): void => {
   let hasConnectedOnce = false;
   let manualDisconnect = false;
   let nextClientSeq = 1;
+  let currentAiJob: ActiveAiJob | null = null;
+  let aiHistory: AiHistoryRecord[] = [];
+  let aiStream: EventSource | null = null;
+  let lastAiUndo: UndoState | null = null;
 
   const setStatus = (message: string): void => {
     statusOutput.textContent = message;
@@ -353,13 +467,456 @@ export const mountApp = (root: HTMLElement): void => {
       .map(
         (participant) => `
           <li class="presence-item">
-            <strong>${participant.displayName}</strong>
-            <span>${participant.userId}</span>
-            <span class="presence-pill">${participant.activity}</span>
+            <strong>${escapeHtml(participant.displayName)}</strong>
+            <span>${escapeHtml(participant.userId)}</span>
+            <span class="presence-pill">${escapeHtml(participant.activity)}</span>
           </li>
         `
       )
       .join("");
+  };
+
+  const renderAiHistory = (): void => {
+    if (!currentDocument) {
+      aiHistoryList.innerHTML = `<li class="history-empty">Load a document to view AI history.</li>`;
+      return;
+    }
+
+    if (!authSession) {
+      aiHistoryList.innerHTML = `<li class="history-empty">Sign in to load AI history for this document.</li>`;
+      return;
+    }
+
+    if (aiHistory.length === 0) {
+      aiHistoryList.innerHTML = `<li class="history-empty">No AI history for this document yet.</li>`;
+      return;
+    }
+
+    aiHistoryList.innerHTML = aiHistory
+      .map(
+        (job) => `
+          <li class="history-item">
+            <div class="history-row">
+              <strong>${escapeHtml(job.feature)}</strong>
+              <span class="history-pill">${escapeHtml(job.status)}</span>
+              <span class="history-pill history-pill-muted">${escapeHtml(job.decision)}</span>
+            </div>
+            <div class="history-meta">
+              <span>${escapeHtml(job.requestedBy.displayName)}</span>
+              <span>${escapeHtml(new Date(job.createdAt).toLocaleString())}</span>
+              <span>${escapeHtml(job.model)}</span>
+            </div>
+            <p class="history-snippet">${escapeHtml(job.outputText || "(no output yet)")}</p>
+          </li>
+        `
+      )
+      .join("");
+  };
+
+  const updateSessionState = (): void => {
+    sessionState.textContent = sessionInfo
+      ? `${sessionInfo.sessionId} on ${sessionInfo.documentId}`
+      : "No active session";
+  };
+
+  const setEditorEnabled = (enabled: boolean): void => {
+    collabEditor.disabled = !enabled;
+  };
+
+  const updateConnectionState = (message: string): void => {
+    connectionState.textContent = message;
+  };
+
+  const currentSelection = (): EditorSelectionRange =>
+    normalizeEditorSelection(collabEditor.value, collabEditor.selectionStart, collabEditor.selectionEnd);
+
+  const renderAiState = (): void => {
+    const selection = currentSelection();
+    aiSelectionState.textContent = !currentDocument
+      ? "Load a document to select text for AI."
+      : !sessionInfo
+        ? "Join a collaboration session before starting AI so accepted changes persist to the shared document."
+        : `Current AI scope: ${describeSelection(selection)}`;
+
+    aiOriginal.value = currentAiJob ? currentAiJob.selection.text : "";
+    aiSuggestion.value = currentAiJob ? currentAiJob.outputText : "";
+    aiSuggestion.readOnly = !(currentAiJob?.editMode ?? false);
+
+    if (!currentAiJob) {
+      aiJobState.textContent = "No active AI request.";
+    } else {
+      aiJobState.textContent = `${currentAiJob.feature} ${currentAiJob.status} / decision ${currentAiJob.decision} on ${describeSelection(currentAiJob.selection)}`;
+    }
+
+    const hasDocument = currentDocument !== null;
+    const hasActiveSession = sessionInfo !== null;
+    const generationActive =
+      currentAiJob?.status === "queued" || currentAiJob?.status === "in_progress";
+    const canUseAi = hasDocument && authSession !== null && hasActiveSession && !generationActive;
+    const decisionPending = currentAiJob?.decision === "pending";
+    const canResolveSuggestion =
+      currentAiJob?.status === "completed" &&
+      currentAiJob.outputText.trim().length > 0 &&
+      decisionPending;
+    const canUndoSuggestion =
+      (currentAiJob?.decision === "accepted" || currentAiJob?.decision === "edited") &&
+      lastAiUndo !== null;
+
+    rewriteButton.disabled = !canUseAi;
+    summarizeButton.disabled = !canUseAi;
+    cancelAiButton.disabled = !generationActive;
+    editAiButton.disabled = !canResolveSuggestion;
+    acceptAiButton.disabled = !canResolveSuggestion;
+    rejectAiButton.disabled = !canResolveSuggestion;
+    undoAiButton.disabled = !canUndoSuggestion;
+  };
+
+  const closeAiStream = (): void => {
+    if (aiStream) {
+      aiStream.close();
+      aiStream = null;
+    }
+  };
+
+  const refreshAiHistory = async (): Promise<void> => {
+    if (!currentDocument || !authSession) {
+      aiHistory = [];
+      renderAiHistory();
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/ai/jobs`,
+      {
+        headers: currentAuthHeaders()
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("AI history load failed", payload);
+      aiHistory = [];
+      renderAiHistory();
+      return;
+    }
+
+    if (!isAiHistoryResponse(payload)) {
+      setStatus("AI history load failed: backend response does not match expected history contract.");
+      aiHistory = [];
+      renderAiHistory();
+      return;
+    }
+
+    aiHistory = payload.jobs;
+    renderAiHistory();
+  };
+
+  const recordAiDecision = async (
+    decision: "accepted" | "rejected" | "edited" | "undone",
+    appliedText: string | null
+  ): Promise<void> => {
+    if (!currentDocument || !currentAiJob || !authSession) {
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/ai/jobs/${encodeURIComponent(currentAiJob.jobId)}/decision`,
+      {
+        method: "POST",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify({
+          decision,
+          appliedText
+        })
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("AI decision save failed", payload);
+      return;
+    }
+
+    currentAiJob.decision = decision;
+    await refreshAiHistory();
+  };
+
+  const syncSelectionStatus = (): void => {
+    renderAiState();
+  };
+
+  const syncEditorAfterProgrammaticChange = (): void => {
+    syncDocumentFromEditor();
+    if (sessionInfo) {
+      queueOrSendLatestText();
+    }
+    syncSelectionStatus();
+  };
+
+  const applyCurrentAiSuggestion = async (decision: "accepted" | "edited"): Promise<void> => {
+    if (!currentDocument || !currentAiJob) {
+      setStatus("No AI suggestion is available to apply.");
+      return;
+    }
+
+    if (currentAiJob.status !== "completed") {
+      setStatus("AI suggestion can only be applied after the stream completes.");
+      return;
+    }
+
+    if (collabEditor.value !== currentAiJob.sourceText) {
+      setStatus("AI suggestion is stale because the document changed after generation. Regenerate on the latest text.");
+      return;
+    }
+
+    const replacementText = aiSuggestion.value;
+    const previousText = collabEditor.value;
+    const nextText = applySuggestionToDocument(previousText, currentAiJob.selection, replacementText);
+    lastAiUndo = {
+      jobId: currentAiJob.jobId,
+      appliedDocumentText: nextText,
+      previousText,
+      restoredText: currentAiJob.selection.text
+    };
+    collabEditor.value = nextText;
+    syncEditorAfterProgrammaticChange();
+    currentAiJob.editMode = false;
+    currentAiJob.outputText = replacementText;
+    await recordAiDecision(decision, replacementText);
+    renderAiState();
+    setStatus(
+      decision === "edited"
+        ? "Edited AI suggestion applied to the document."
+        : "AI suggestion accepted and applied to the document."
+    );
+  };
+
+  const undoLastAiApply = async (): Promise<void> => {
+    if (!currentAiJob || !lastAiUndo) {
+      setStatus("No AI apply action is available to undo.");
+      return;
+    }
+
+    if (collabEditor.value !== lastAiUndo.appliedDocumentText) {
+      setStatus("Undo blocked because the document changed after the AI suggestion was applied.");
+      return;
+    }
+
+    collabEditor.value = lastAiUndo.previousText;
+    syncEditorAfterProgrammaticChange();
+    await recordAiDecision("undone", lastAiUndo.restoredText);
+    lastAiUndo = null;
+    renderAiState();
+    setStatus("Last AI apply action was undone.");
+  };
+
+  const openAiStream = (job: ActiveAiJob): void => {
+    closeAiStream();
+    const source = new EventSource(`${job.streamUrl}?token=${encodeURIComponent(job.streamToken)}`);
+    aiStream = source;
+
+    const handleTypedEvent = (eventName: string, rawEvent: MessageEvent<string>): void => {
+      if (!currentAiJob || currentAiJob.jobId !== job.jobId) {
+        return;
+      }
+
+      let payload: unknown;
+
+      try {
+        payload = JSON.parse(rawEvent.data) as unknown;
+      } catch {
+        setStatus("Received malformed AI stream event.");
+        return;
+      }
+
+      if (typeof payload !== "object" || payload === null || !("jobId" in payload)) {
+        setStatus("Received unexpected AI stream event.");
+        return;
+      }
+
+      const typedPayload = payload as {
+        canceledAt?: string;
+        completedAt?: string;
+        errorMessage?: string;
+        outputText?: string;
+        status?: AiJobStatus;
+      };
+
+      if (eventName === "ai.status" && typedPayload.status) {
+        currentAiJob.status = typedPayload.status;
+        renderAiState();
+        return;
+      }
+
+      if (eventName === "ai.chunk" && typeof typedPayload.outputText === "string") {
+        currentAiJob.outputText = typedPayload.outputText;
+        renderAiState();
+        setStatus(`AI stream updated for ${currentAiJob.feature}.`);
+        return;
+      }
+
+      if (eventName === "ai.completed" && typeof typedPayload.outputText === "string") {
+        currentAiJob.outputText = typedPayload.outputText;
+        currentAiJob.status = "completed";
+        closeAiStream();
+        renderAiState();
+        void refreshAiHistory();
+        setStatus("AI stream completed. Review the suggestion, then accept, reject, or edit it.");
+        return;
+      }
+
+      if (eventName === "ai.canceled") {
+        currentAiJob.status = "canceled";
+        if (typeof typedPayload.outputText === "string") {
+          currentAiJob.outputText = typedPayload.outputText;
+        }
+        closeAiStream();
+        renderAiState();
+        void refreshAiHistory();
+        setStatus("AI stream canceled.");
+        return;
+      }
+
+      if (eventName === "ai.failed") {
+        currentAiJob.status = "failed";
+        closeAiStream();
+        renderAiState();
+        void refreshAiHistory();
+        setStatus(
+          `AI stream failed${typedPayload.errorMessage ? `: ${typedPayload.errorMessage}` : "."}`
+        );
+      }
+    };
+
+    source.addEventListener("ai.status", (event) => {
+      handleTypedEvent("ai.status", event as MessageEvent<string>);
+    });
+    source.addEventListener("ai.chunk", (event) => {
+      handleTypedEvent("ai.chunk", event as MessageEvent<string>);
+    });
+    source.addEventListener("ai.completed", (event) => {
+      handleTypedEvent("ai.completed", event as MessageEvent<string>);
+    });
+    source.addEventListener("ai.canceled", (event) => {
+      handleTypedEvent("ai.canceled", event as MessageEvent<string>);
+    });
+    source.addEventListener("ai.failed", (event) => {
+      handleTypedEvent("ai.failed", event as MessageEvent<string>);
+    });
+    source.onerror = () => {
+      if (currentAiJob?.status === "queued" || currentAiJob?.status === "in_progress") {
+        setStatus("AI stream connection dropped before completion.");
+      }
+      closeAiStream();
+    };
+  };
+
+  const startAiJob = async (feature: "rewrite" | "summarize"): Promise<void> => {
+    if (!currentDocument) {
+      setStatus("AI request blocked: load a document first.");
+      return;
+    }
+
+    if (!authSession) {
+      setStatus("AI request blocked: sign in first.");
+      return;
+    }
+
+    if (!sessionInfo) {
+      setStatus("AI request blocked: join a collaboration session first so accepted changes are persisted.");
+      return;
+    }
+
+    if (currentAiJob && (currentAiJob.status === "queued" || currentAiJob.status === "in_progress")) {
+      setStatus("Only one in-flight AI request is supported in this baseline. Cancel the current stream first.");
+      return;
+    }
+
+    const selection = currentSelection();
+    setStatus(`Starting AI ${feature} for ${describeSelection(selection)}...`);
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/ai/jobs`,
+      {
+        method: "POST",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify({
+          feature,
+          selection,
+          context: buildAiRequestContext(collabEditor.value, selection),
+          instructions: aiInstructions.value.trim() || null
+        })
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("AI request failed", payload);
+      return;
+    }
+
+    if (!isCreateAiJobResponse(payload)) {
+      setStatus("AI request failed: backend response does not match expected AI job contract.");
+      return;
+    }
+
+    currentAiJob = {
+      createdAt: payload.createdAt,
+      decision: "pending",
+      documentId: payload.documentId,
+      editMode: false,
+      feature,
+      jobId: payload.jobId,
+      outputText: "",
+      selection,
+      sourceText: collabEditor.value,
+      status: payload.status,
+      streamToken: payload.streamToken,
+      streamUrl: payload.streamUrl
+    };
+    aiOriginal.value = selection.text;
+    aiSuggestion.value = "";
+    renderAiState();
+    void refreshAiHistory();
+    openAiStream(currentAiJob);
+  };
+
+  const cancelAiJob = async (): Promise<void> => {
+    if (!currentDocument || !currentAiJob || !authSession) {
+      setStatus("No active AI stream to cancel.");
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/ai/jobs/${encodeURIComponent(currentAiJob.jobId)}/cancel`,
+      {
+        method: "POST",
+        headers: currentAuthHeaders()
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("AI cancel failed", payload);
+      return;
+    }
+
+    currentAiJob.status = "canceled";
+    closeAiStream();
+    renderAiState();
+    await refreshAiHistory();
+    setStatus("AI cancel request sent.");
+  };
+
+  const resetAiState = (): void => {
+    closeAiStream();
+    currentAiJob = null;
+    lastAiUndo = null;
+    aiOriginal.value = "";
+    aiSuggestion.value = "";
+    aiHistory = [];
+    renderAiHistory();
+    renderAiState();
   };
 
   const resetPresence = (): void => {
@@ -385,20 +942,6 @@ export const mountApp = (root: HTMLElement): void => {
       window.clearTimeout(typingIdleTimer);
       typingIdleTimer = null;
     }
-  };
-
-  const updateConnectionState = (message: string): void => {
-    connectionState.textContent = message;
-  };
-
-  const updateSessionState = (): void => {
-    sessionState.textContent = sessionInfo
-      ? `${sessionInfo.sessionId} on ${sessionInfo.documentId}`
-      : "No active session";
-  };
-
-  const setEditorEnabled = (enabled: boolean): void => {
-    collabEditor.disabled = !enabled;
   };
 
   const closeSocket = (): void => {
@@ -448,6 +991,7 @@ export const mountApp = (root: HTMLElement): void => {
 
   const queueOrSendLatestText = (baseRevision = currentServerRevision): void => {
     if (!sessionInfo) {
+      syncDocumentFromEditor();
       return;
     }
 
@@ -518,7 +1062,6 @@ export const mountApp = (root: HTMLElement): void => {
 
       if (typedMessage.type === "server.bootstrap") {
         const bootstrap = message as unknown as {
-          documentId: string;
           participants: CollaborationParticipant[];
           serverRevision: number;
           text: string;
@@ -546,6 +1089,7 @@ export const mountApp = (root: HTMLElement): void => {
           queueOrSendLatestText(bootstrap.serverRevision);
         }
 
+        syncSelectionStatus();
         return;
       }
 
@@ -557,7 +1101,6 @@ export const mountApp = (root: HTMLElement): void => {
 
       if (typedMessage.type === "server.ack") {
         const ack = message as unknown as {
-          ackClientSeq: number;
           mutationId: string;
           serverRevision: number;
           text: string;
@@ -571,6 +1114,7 @@ export const mountApp = (root: HTMLElement): void => {
           pendingMutation = null;
         }
 
+        syncSelectionStatus();
         setStatus(
           `Server acknowledged mutation ${ack.mutationId.slice(0, 8)} at revision ${ack.serverRevision}.`
         );
@@ -580,7 +1124,6 @@ export const mountApp = (root: HTMLElement): void => {
       if (typedMessage.type === "server.update") {
         const update = message as unknown as {
           authorUserId: string;
-          mutationId: string;
           serverRevision: number;
           text: string;
         };
@@ -588,6 +1131,7 @@ export const mountApp = (root: HTMLElement): void => {
         updateRevisionState(update.serverRevision);
         collabEditor.value = update.text;
         syncDocumentFromEditor();
+        syncSelectionStatus();
         setStatus(
           `Remote update from ${update.authorUserId} applied at revision ${update.serverRevision}.`
         );
@@ -670,6 +1214,10 @@ export const mountApp = (root: HTMLElement): void => {
       resetCollaboration(false);
       collabEditor.value = toParagraphText(payload);
     }
+
+    resetAiState();
+    syncSelectionStatus();
+    await refreshAiHistory();
   };
 
   createForm.addEventListener("submit", async (event) => {
@@ -757,6 +1305,8 @@ export const mountApp = (root: HTMLElement): void => {
       collabEditor.value = currentDocument ? toParagraphText(currentDocument) : collabEditor.value;
     }
 
+    await refreshAiHistory();
+    renderAiState();
     setStatus(
       `Signed in as ${payload.displayName}. Session bootstrap is now authorized for workspaces: ${payload.workspaceIds.join(", ")}.`
     );
@@ -769,7 +1319,8 @@ export const mountApp = (root: HTMLElement): void => {
       resetCollaboration(false);
       collabEditor.value = currentDocument ? toParagraphText(currentDocument) : collabEditor.value;
     }
-    setStatus("Signed out. Sign in again before starting a collaboration session.");
+    resetAiState();
+    setStatus("Signed out. Sign in again before starting a collaboration session or AI request.");
   });
 
   joinButton.addEventListener("click", async () => {
@@ -846,6 +1397,7 @@ export const mountApp = (root: HTMLElement): void => {
 
   collabEditor.addEventListener("input", () => {
     syncDocumentFromEditor();
+    syncSelectionStatus();
 
     if (!sessionInfo) {
       return;
@@ -863,6 +1415,51 @@ export const mountApp = (root: HTMLElement): void => {
       queueOrSendLatestText();
       sendTimer = null;
     }, 180);
+  });
+
+  collabEditor.addEventListener("select", syncSelectionStatus);
+  collabEditor.addEventListener("click", syncSelectionStatus);
+  collabEditor.addEventListener("keyup", syncSelectionStatus);
+
+  rewriteButton.addEventListener("click", async () => {
+    await startAiJob("rewrite");
+  });
+  summarizeButton.addEventListener("click", async () => {
+    await startAiJob("summarize");
+  });
+  cancelAiButton.addEventListener("click", async () => {
+    await cancelAiJob();
+  });
+  editAiButton.addEventListener("click", () => {
+    if (!currentAiJob || currentAiJob.status !== "completed") {
+      setStatus("Edit blocked: wait for a completed AI suggestion first.");
+      return;
+    }
+
+    currentAiJob.editMode = !currentAiJob.editMode;
+    renderAiState();
+    setStatus(currentAiJob.editMode ? "Suggestion edit mode enabled." : "Suggestion edit mode disabled.");
+  });
+  aiSuggestion.addEventListener("input", () => {
+    if (!currentAiJob?.editMode) {
+      return;
+    }
+    currentAiJob.outputText = aiSuggestion.value;
+  });
+  acceptAiButton.addEventListener("click", async () => {
+    await applyCurrentAiSuggestion(currentAiJob?.editMode ? "edited" : "accepted");
+  });
+  rejectAiButton.addEventListener("click", async () => {
+    if (!currentAiJob) {
+      setStatus("No AI suggestion is available to reject.");
+      return;
+    }
+    await recordAiDecision("rejected", null);
+    renderAiState();
+    setStatus("AI suggestion rejected.");
+  });
+  undoAiButton.addEventListener("click", async () => {
+    await undoLastAiApply();
   });
 
   renderDocument({
@@ -886,4 +1483,6 @@ export const mountApp = (root: HTMLElement): void => {
   resetCollaboration(true);
   updateAuthState();
   documentOutput.textContent = "No document loaded yet.";
+  renderAiHistory();
+  renderAiState();
 };

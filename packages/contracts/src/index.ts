@@ -5,6 +5,10 @@ export type AiFeatureType = "rewrite" | "summarize" | "translate" | "restructure
 
 export type CollaborationActivity = "idle" | "editing";
 
+export type AiJobStatus = "queued" | "in_progress" | "completed" | "failed" | "canceled";
+
+export type AiSuggestionDecision = "pending" | "accepted" | "rejected" | "edited" | "undone";
+
 export interface DocumentParagraph {
   type: "paragraph";
   text: string;
@@ -82,6 +86,113 @@ export interface CollaborationParticipant {
   displayName: string;
   activity: CollaborationActivity;
 }
+
+export interface AiSelectionRange {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface AiRequestContext {
+  before: string;
+  after: string;
+}
+
+export interface CreateAiJobRequest {
+  feature: Extract<AiFeatureType, "rewrite" | "summarize">;
+  selection: AiSelectionRange;
+  context: AiRequestContext;
+  instructions: string | null;
+}
+
+export interface CreateAiJobResponse {
+  jobId: string;
+  documentId: string;
+  feature: Extract<AiFeatureType, "rewrite" | "summarize">;
+  status: AiJobStatus;
+  streamUrl: string;
+  streamToken: string;
+  createdAt: string;
+}
+
+export interface AiSuggestionDecisionRequest {
+  decision: Exclude<AiSuggestionDecision, "pending">;
+  appliedText: string | null;
+}
+
+export interface AiHistoryRecord {
+  jobId: string;
+  documentId: string;
+  feature: Extract<AiFeatureType, "rewrite" | "summarize">;
+  status: AiJobStatus;
+  decision: AiSuggestionDecision;
+  requestedBy: {
+    userId: string;
+    displayName: string;
+  };
+  selection: AiSelectionRange;
+  sourceText: string;
+  outputText: string;
+  appliedText: string | null;
+  instructions: string | null;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  canceledAt: string | null;
+  errorMessage: string | null;
+}
+
+export interface AiHistoryResponse {
+  documentId: string;
+  jobs: AiHistoryRecord[];
+}
+
+export interface AiStreamStatusEvent {
+  type: "ai.status";
+  jobId: string;
+  status: AiJobStatus;
+  message: string;
+}
+
+export interface AiStreamChunkEvent {
+  type: "ai.chunk";
+  jobId: string;
+  delta: string;
+  outputText: string;
+}
+
+export interface AiStreamCompleteEvent {
+  type: "ai.completed";
+  jobId: string;
+  status: "completed";
+  outputText: string;
+  completedAt: string;
+  model: string;
+}
+
+export interface AiStreamCanceledEvent {
+  type: "ai.canceled";
+  jobId: string;
+  status: "canceled";
+  outputText: string;
+  canceledAt: string;
+}
+
+export interface AiStreamFailedEvent {
+  type: "ai.failed";
+  jobId: string;
+  status: "failed";
+  outputText: string;
+  errorMessage: string;
+}
+
+export type AiStreamEvent =
+  | AiStreamStatusEvent
+  | AiStreamChunkEvent
+  | AiStreamCompleteEvent
+  | AiStreamCanceledEvent
+  | AiStreamFailedEvent;
 
 export interface DemoLoginRequest {
   userId: string;
@@ -274,6 +385,122 @@ export const parseCollaborationSessionRequest = (
   return {
     ok: true,
     value: {}
+  };
+};
+
+const isSupportedAiFeature = (
+  value: unknown
+): value is Extract<AiFeatureType, "rewrite" | "summarize"> =>
+  value === "rewrite" || value === "summarize";
+
+const isAiJobStatus = (value: unknown): value is AiJobStatus =>
+  value === "queued" ||
+  value === "in_progress" ||
+  value === "completed" ||
+  value === "failed" ||
+  value === "canceled";
+
+const isAiSuggestionDecision = (value: unknown): value is AiSuggestionDecision =>
+  value === "pending" ||
+  value === "accepted" ||
+  value === "rejected" ||
+  value === "edited" ||
+  value === "undone";
+
+export const isAiSelectionRange = (value: unknown): value is AiSelectionRange => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    Number.isInteger(value.start) &&
+    Number.isInteger(value.end) &&
+    (value.start as number) >= 0 &&
+    (value.end as number) >= (value.start as number) &&
+    typeof value.text === "string"
+  );
+};
+
+export const parseCreateAiJobRequest = (value: unknown): ParseResult<CreateAiJobRequest> => {
+  if (!isRecord(value)) {
+    return { ok: false, reason: "Request body must be a JSON object." };
+  }
+
+  if (!isSupportedAiFeature(value.feature)) {
+    return { ok: false, reason: "feature must be either 'rewrite' or 'summarize'." };
+  }
+
+  if (!isAiSelectionRange(value.selection)) {
+    return { ok: false, reason: "selection must include valid start/end offsets and text." };
+  }
+
+  if (value.selection.text.trim().length === 0) {
+    return { ok: false, reason: "selection text must not be empty." };
+  }
+
+  if (
+    !isRecord(value.context) ||
+    typeof value.context.before !== "string" ||
+    typeof value.context.after !== "string"
+  ) {
+    return { ok: false, reason: "context must include string before/after fields." };
+  }
+
+  if (value.context.before.length > 240 || value.context.after.length > 240) {
+    return { ok: false, reason: "context before/after must be 240 characters or fewer." };
+  }
+
+  if (value.instructions !== null && typeof value.instructions !== "string") {
+    return { ok: false, reason: "instructions must be null or string." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      feature: value.feature,
+      selection: value.selection,
+      context: {
+        before: value.context.before,
+        after: value.context.after
+      },
+      instructions: value.instructions
+    }
+  };
+};
+
+export const parseAiSuggestionDecisionRequest = (
+  value: unknown
+): ParseResult<AiSuggestionDecisionRequest> => {
+  if (!isRecord(value)) {
+    return { ok: false, reason: "Request body must be a JSON object." };
+  }
+
+  if (
+    value.decision !== "accepted" &&
+    value.decision !== "rejected" &&
+    value.decision !== "edited" &&
+    value.decision !== "undone"
+  ) {
+    return { ok: false, reason: "decision must be accepted, rejected, edited, or undone." };
+  }
+
+  if (value.appliedText !== null && typeof value.appliedText !== "string") {
+    return { ok: false, reason: "appliedText must be null or string." };
+  }
+
+  if (
+    (value.decision === "accepted" || value.decision === "edited") &&
+    typeof value.appliedText !== "string"
+  ) {
+    return { ok: false, reason: "accepted or edited decisions must include appliedText." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      decision: value.decision,
+      appliedText: value.appliedText
+    }
   };
 };
 
@@ -511,5 +738,60 @@ export const isDemoLoginResponse = (value: unknown): value is DemoLoginResponse 
     value.workspaceIds.every((workspaceId) => isNonEmptyString(workspaceId)) &&
     isIsoDateString(value.issuedAt) &&
     isIsoDateString(value.expiresAt)
+  );
+};
+
+export const isCreateAiJobResponse = (value: unknown): value is CreateAiJobResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.jobId) &&
+    isNonEmptyString(value.documentId) &&
+    isSupportedAiFeature(value.feature) &&
+    isAiJobStatus(value.status) &&
+    isNonEmptyString(value.streamUrl) &&
+    isNonEmptyString(value.streamToken) &&
+    isIsoDateString(value.createdAt)
+  );
+};
+
+export const isAiHistoryRecord = (value: unknown): value is AiHistoryRecord => {
+  if (!isRecord(value) || !isRecord(value.requestedBy)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.jobId) &&
+    isNonEmptyString(value.documentId) &&
+    isSupportedAiFeature(value.feature) &&
+    isAiJobStatus(value.status) &&
+    isAiSuggestionDecision(value.decision) &&
+    isNonEmptyString(value.requestedBy.userId) &&
+    isNonEmptyString(value.requestedBy.displayName) &&
+    isAiSelectionRange(value.selection) &&
+    typeof value.sourceText === "string" &&
+    typeof value.outputText === "string" &&
+    (value.appliedText === null || typeof value.appliedText === "string") &&
+    (value.instructions === null || typeof value.instructions === "string") &&
+    isNonEmptyString(value.model) &&
+    isIsoDateString(value.createdAt) &&
+    isIsoDateString(value.updatedAt) &&
+    (value.completedAt === null || isIsoDateString(value.completedAt)) &&
+    (value.canceledAt === null || isIsoDateString(value.canceledAt)) &&
+    (value.errorMessage === null || typeof value.errorMessage === "string")
+  );
+};
+
+export const isAiHistoryResponse = (value: unknown): value is AiHistoryResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.documentId) &&
+    Array.isArray(value.jobs) &&
+    value.jobs.every((job) => isAiHistoryRecord(job))
   );
 };

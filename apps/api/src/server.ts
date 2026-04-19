@@ -8,13 +8,25 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Duplex } from "node:stream";
 import { URL, fileURLToPath } from "node:url";
 import {
+  parseAiSuggestionDecisionRequest,
   parseCollaborationClientMessage,
   parseCollaborationSessionRequest,
   parseCreateDocumentShareRequest,
+  parseCreateAiJobRequest,
   parseCreateDocumentRequest,
   parseDemoLoginRequest,
   parseUpdateDocumentRequest,
   type ApiErrorEnvelope,
+  type AiFeatureType,
+  type AiHistoryRecord,
+  type AiJobStatus,
+  type AiSelectionRange,
+  type AiStreamCanceledEvent,
+  type AiStreamCompleteEvent,
+  type AiStreamEvent,
+  type AiStreamFailedEvent,
+  type AiStreamStatusEvent,
+  type AiStreamChunkEvent,
   type CollaborationParticipant,
   type CollaborationServerAckMessage,
   type CollaborationServerBootstrapMessage,
@@ -92,7 +104,40 @@ interface SessionTokenPayload {
   tokenUse: "collab_session";
 }
 
-type SignedTokenPayload = AccessTokenPayload | SessionTokenPayload;
+interface AiStreamTokenPayload {
+  documentId: string;
+  exp: number;
+  iat: number;
+  jobId: string;
+  name: string;
+  sub: string;
+  tokenUse: "ai_stream";
+}
+
+type SignedTokenPayload = AccessTokenPayload | SessionTokenPayload | AiStreamTokenPayload;
+
+interface AiJobRuntime {
+  canceledAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  decision: AiHistoryRecord["decision"];
+  documentId: string;
+  errorMessage: string | null;
+  feature: Extract<AiFeatureType, "rewrite" | "summarize">;
+  instructions: string | null;
+  jobId: string;
+  model: string;
+  outputText: string;
+  appliedText: string | null;
+  requestedBy: AiHistoryRecord["requestedBy"];
+  selection: AiSelectionRange;
+  sourceText: string;
+  status: AiJobStatus;
+  subscribers: Set<ServerResponse>;
+  startTimer: NodeJS.Timeout | null;
+  streamTimer: NodeJS.Timeout | null;
+  updatedAt: string;
+}
 
 interface DemoUser {
   displayName: string;
@@ -104,6 +149,7 @@ interface DemoUser {
 const DEFAULT_PORT = Number(process.env.PORT ?? 4000);
 const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 const SESSION_TOKEN_TTL_SECONDS = 20 * 60;
+const AI_STREAM_TOKEN_TTL_SECONDS = 20 * 60;
 const SESSION_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET?.trim() || "dev-collab-secret";
 const MAX_MUTATION_HISTORY = 200;
 const ROLE_PRIORITY: Record<SharingRole, number> = {
@@ -112,6 +158,7 @@ const ROLE_PRIORITY: Record<SharingRole, number> = {
   viewer: 2
 };
 const WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const AI_MODEL_NAME = "demo-local-ai-v1";
 const DEMO_USERS = new Map<string, DemoUser>([
   [
     "usr_assanali",
@@ -313,7 +360,18 @@ const verifyJwt = (token: string): { ok: true; value: SignedTokenPayload } | { o
     return { ok: false, reason: "Session token payload is invalid." };
   }
 
-  if (tokenPayload.tokenUse !== "api_access" && tokenPayload.tokenUse !== "collab_session") {
+  if (
+    tokenPayload.tokenUse === "ai_stream" &&
+    (typeof tokenPayload.documentId !== "string" || typeof tokenPayload.jobId !== "string")
+  ) {
+    return { ok: false, reason: "AI stream token payload is invalid." };
+  }
+
+  if (
+    tokenPayload.tokenUse !== "api_access" &&
+    tokenPayload.tokenUse !== "collab_session" &&
+    tokenPayload.tokenUse !== "ai_stream"
+  ) {
     return { ok: false, reason: "Token use is not supported." };
   }
 
@@ -351,6 +409,22 @@ const verifySessionToken = (
 
   if (verified.value.tokenUse !== "collab_session") {
     return { ok: false, reason: "Token is not a collaboration session token." };
+  }
+
+  return { ok: true, value: verified.value };
+};
+
+const verifyAiStreamToken = (
+  token: string
+): { ok: true; value: AiStreamTokenPayload } | { ok: false; reason: string } => {
+  const verified = verifyJwt(token);
+
+  if (!verified.ok) {
+    return verified;
+  }
+
+  if (verified.value.tokenUse !== "ai_stream") {
+    return { ok: false, reason: "Token is not an AI stream token." };
   }
 
   return { ok: true, value: verified.value };
@@ -547,6 +621,9 @@ const buildPermissionsResponse = (document: StoredDocument): DocumentPermissions
   };
 };
 
+const isAiJobOwner = (user: AccessTokenPayload, job: AiJobRuntime): boolean =>
+  user.sub === job.requestedBy.userId;
+
 const createCollaborationState = (documentText: string): CollaborationState => ({
   mutationHistory: new Map(),
   mutationOrder: [],
@@ -740,7 +817,206 @@ const resolveWsUrl = (request: IncomingMessage): string => {
   return `${protocol}://${host}/v1/collab`;
 };
 
+const resolveHttpBaseUrl = (request: IncomingMessage): string => {
+  const forwardedProtoHeader = request.headers["x-forwarded-proto"];
+  const forwardedProto = Array.isArray(forwardedProtoHeader)
+    ? forwardedProtoHeader[0]
+    : forwardedProtoHeader;
+  const protocol = forwardedProto === "https" ? "https" : "http";
+  const host = request.headers.host ?? `localhost:${DEFAULT_PORT}`;
+  return `${protocol}://${host}`;
+};
+
+const toAiHistoryRecord = (job: AiJobRuntime): AiHistoryRecord => ({
+  jobId: job.jobId,
+  documentId: job.documentId,
+  feature: job.feature,
+  status: job.status,
+  decision: job.decision,
+  requestedBy: job.requestedBy,
+  selection: job.selection,
+  sourceText: job.sourceText,
+  outputText: job.outputText,
+  appliedText: job.appliedText,
+  instructions: job.instructions,
+  model: job.model,
+  createdAt: job.createdAt,
+  updatedAt: job.updatedAt,
+  completedAt: job.completedAt,
+  canceledAt: job.canceledAt,
+  errorMessage: job.errorMessage
+});
+
+const writeSseEvent = (response: ServerResponse, event: AiStreamEvent): void => {
+  response.write(`event: ${event.type}\n`);
+  response.write(`data: ${JSON.stringify(event)}\n\n`);
+};
+
+const closeAiSubscribers = (job: AiJobRuntime): void => {
+  for (const subscriber of job.subscribers) {
+    subscriber.end();
+  }
+  job.subscribers.clear();
+};
+
+const publishAiEvent = (job: AiJobRuntime, event: AiStreamEvent): void => {
+  for (const subscriber of job.subscribers) {
+    writeSseEvent(subscriber, event);
+  }
+};
+
+const touchAiJob = (job: AiJobRuntime, status?: AiJobStatus): void => {
+  if (status) {
+    job.status = status;
+  }
+  job.updatedAt = new Date().toISOString();
+};
+
+const cleanWhitespace = (text: string): string =>
+  text
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .trim();
+
+const buildRewriteSuggestion = (text: string, instructions: string | null): string => {
+  const withoutFiller = cleanWhitespace(
+    text.replace(/\b(really|very|just|actually|basically|perhaps)\b/giu, "")
+  );
+  if (withoutFiller.length === 0) {
+    return "Rewrite unavailable because the selected text is empty.";
+  }
+
+  const rewritten = withoutFiller
+    .split(/(?<=[.!?])\s+/u)
+    .filter((sentence) => sentence.trim().length > 0)
+    .map((sentence) => sentence.trim())
+    .map((sentence) => sentence[0].toUpperCase() + sentence.slice(1))
+    .join(" ");
+
+  return instructions && instructions.trim().length > 0
+    ? `${rewritten}\n\nAdditional focus: ${cleanWhitespace(instructions)}.`
+    : rewritten;
+};
+
+const buildSummarySuggestion = (text: string): string => {
+  const cleaned = cleanWhitespace(text);
+  if (cleaned.length === 0) {
+    return "Summary unavailable because the selected text is empty.";
+  }
+
+  const words = cleaned.split(/\s+/u);
+  const summary = words.slice(0, Math.min(words.length, 18)).join(" ");
+  const suffix = words.length > 18 ? "..." : ".";
+  return `Summary: ${summary}${suffix}`;
+};
+
+const buildAiSuggestion = (
+  feature: Extract<AiFeatureType, "rewrite" | "summarize">,
+  selectionText: string,
+  instructions: string | null
+): string => (feature === "rewrite" ? buildRewriteSuggestion(selectionText, instructions) : buildSummarySuggestion(selectionText));
+
+const splitAiSuggestion = (text: string): string[] => {
+  const tokens = text.match(/\S+\s*/gu);
+  return tokens && tokens.length > 0 ? tokens : [text];
+};
+
+const startAiJob = (job: AiJobRuntime): void => {
+  const suggestion = buildAiSuggestion(job.feature, job.selection.text, job.instructions);
+  const chunks = splitAiSuggestion(suggestion);
+  let chunkIndex = 0;
+
+  job.startTimer = setTimeout(() => {
+    job.startTimer = null;
+
+    if (job.status === "canceled") {
+      return;
+    }
+
+    touchAiJob(job, "in_progress");
+    const statusEvent: AiStreamStatusEvent = {
+      type: "ai.status",
+      jobId: job.jobId,
+      status: job.status,
+      message: "Generation started."
+    };
+    publishAiEvent(job, statusEvent);
+
+    job.streamTimer = setInterval(() => {
+      if (job.status === "canceled") {
+        if (job.streamTimer) {
+          clearInterval(job.streamTimer);
+          job.streamTimer = null;
+        }
+        return;
+      }
+
+      const nextChunk = chunks[chunkIndex];
+
+      if (nextChunk === undefined) {
+        if (job.streamTimer) {
+          clearInterval(job.streamTimer);
+          job.streamTimer = null;
+        }
+
+        job.completedAt = new Date().toISOString();
+        touchAiJob(job, "completed");
+        const completeEvent: AiStreamCompleteEvent = {
+          type: "ai.completed",
+          jobId: job.jobId,
+          status: "completed",
+          outputText: job.outputText,
+          completedAt: job.completedAt,
+          model: job.model
+        };
+        publishAiEvent(job, completeEvent);
+        closeAiSubscribers(job);
+        return;
+      }
+
+      job.outputText += nextChunk;
+      touchAiJob(job);
+      const chunkEvent: AiStreamChunkEvent = {
+        type: "ai.chunk",
+        jobId: job.jobId,
+        delta: nextChunk,
+        outputText: job.outputText
+      };
+      publishAiEvent(job, chunkEvent);
+      chunkIndex += 1;
+    }, 110);
+  }, 160);
+};
+
+const cancelAiJob = (job: AiJobRuntime): void => {
+  if (job.startTimer) {
+    clearTimeout(job.startTimer);
+    job.startTimer = null;
+  }
+  if (job.streamTimer) {
+    clearInterval(job.streamTimer);
+    job.streamTimer = null;
+  }
+
+  if (job.status === "canceled" || job.status === "completed" || job.status === "failed") {
+    return;
+  }
+
+  job.canceledAt = new Date().toISOString();
+  touchAiJob(job, "canceled");
+  const canceledEvent: AiStreamCanceledEvent = {
+    type: "ai.canceled",
+    jobId: job.jobId,
+    status: "canceled",
+    outputText: job.outputText,
+    canceledAt: job.canceledAt
+  };
+  publishAiEvent(job, canceledEvent);
+  closeAiSubscribers(job);
+};
+
 export const createApiServer = (store = new Map<string, StoredDocument>()): Server => {
+  const aiJobs = new Map<string, AiJobRuntime>();
   const server = createServer(async (request, response) => {
     setCorsHeaders(response);
 
@@ -1299,6 +1575,428 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         serverRevision: collaboration.serverRevision
       });
       return;
+    }
+
+    const aiJobCollectionMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/ai\/jobs$/u);
+    if (aiJobCollectionMatch) {
+      const [, documentId] = aiJobCollectionMatch;
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canReadDocument(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "ACCESS_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+            false,
+            { workspaceId: found.metadata.workspaceId }
+          )
+        );
+        return;
+      }
+
+      if (request.method === "GET") {
+        const jobs = [...aiJobs.values()]
+          .filter((job) => job.documentId === documentId)
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+          .map((job) => toAiHistoryRecord(job));
+        json(response, 200, { documentId, jobs });
+        return;
+      }
+
+      if (request.method === "POST") {
+        if (!canEditDocument(authenticatedUser.value, found)) {
+          json(
+            response,
+            403,
+            buildErrorEnvelope(
+              requestId,
+              "AUTHZ_FORBIDDEN",
+              `User '${authenticatedUser.value.sub}' does not have AI invocation access to document '${documentId}'.`,
+              false,
+              { workspaceId: found.metadata.workspaceId }
+            )
+          );
+          return;
+        }
+
+        try {
+          const rawBody = await readJsonBody(request);
+          const parsed = parseCreateAiJobRequest(rawBody);
+
+          if (!parsed.ok) {
+            json(response, 400, buildErrorEnvelope(requestId, "VALIDATION_ERROR", parsed.reason, false));
+            return;
+          }
+
+          const jobId = `ai_${randomUUID().slice(0, 8)}`;
+          const now = Math.floor(Date.now() / 1000);
+          const createdAt = new Date(now * 1000).toISOString();
+          const job: AiJobRuntime = {
+            canceledAt: null,
+            completedAt: null,
+            createdAt,
+            decision: "pending",
+            documentId,
+            errorMessage: null,
+            feature: parsed.value.feature,
+            instructions: parsed.value.instructions,
+            jobId,
+            model: AI_MODEL_NAME,
+            outputText: "",
+            appliedText: null,
+            requestedBy: {
+              userId: authenticatedUser.value.sub,
+              displayName: authenticatedUser.value.name
+            },
+            selection: parsed.value.selection,
+            sourceText: parsed.value.selection.text,
+            status: "queued",
+            subscribers: new Set(),
+            startTimer: null,
+            streamTimer: null,
+            updatedAt: createdAt
+          };
+          aiJobs.set(jobId, job);
+          startAiJob(job);
+
+          const streamToken = signJwt({
+            tokenUse: "ai_stream",
+            sub: authenticatedUser.value.sub,
+            name: authenticatedUser.value.name,
+            documentId,
+            jobId,
+            iat: now,
+            exp: now + AI_STREAM_TOKEN_TTL_SECONDS
+          });
+          json(response, 201, {
+            jobId,
+            documentId,
+            feature: job.feature,
+            status: job.status,
+            streamUrl: `${resolveHttpBaseUrl(request)}/v1/documents/${encodeURIComponent(documentId)}/ai/jobs/${encodeURIComponent(jobId)}/stream`,
+            streamToken,
+            createdAt
+          });
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unexpected request parsing error.";
+          json(response, 400, buildErrorEnvelope(requestId, "MALFORMED_REQUEST", message, false));
+          return;
+        }
+      }
+    }
+
+    const aiStreamMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/ai\/jobs\/([^/]+)\/stream$/u);
+    if (request.method === "GET" && aiStreamMatch) {
+      const [, documentId, jobId] = aiStreamMatch;
+      const token = url.searchParams.get("token");
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      if (!token) {
+        json(response, 401, buildErrorEnvelope(requestId, "AUTH_REQUIRED", "AI stream token is required.", false));
+        return;
+      }
+
+      const verified = verifyAiStreamToken(token);
+      if (!verified.ok || verified.value.documentId !== documentId || verified.value.jobId !== jobId) {
+        json(
+          response,
+          401,
+          buildErrorEnvelope(
+            requestId,
+            "AUTH_INVALID_TOKEN",
+            verified.ok ? "AI stream token does not match the requested resource." : verified.reason,
+            false
+          )
+        );
+        return;
+      }
+
+      const job = aiJobs.get(jobId);
+      if (!job || job.documentId !== documentId) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(requestId, "AI_JOB_NOT_FOUND", `AI job '${jobId}' does not exist.`, false)
+        );
+        return;
+      }
+
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      response.setHeader("Cache-Control", "no-cache, no-transform");
+      response.setHeader("Connection", "keep-alive");
+      response.setHeader("X-Accel-Buffering", "no");
+      response.write(": connected\n\n");
+
+      const statusEvent: AiStreamStatusEvent = {
+        type: "ai.status",
+        jobId: job.jobId,
+        status: job.status,
+        message:
+          job.status === "queued"
+            ? "Generation queued."
+            : job.status === "in_progress"
+              ? "Generation in progress."
+              : `Generation ${job.status}.`
+      };
+      writeSseEvent(response, statusEvent);
+
+      if (job.outputText.length > 0) {
+        const chunkEvent: AiStreamChunkEvent = {
+          type: "ai.chunk",
+          jobId: job.jobId,
+          delta: job.outputText,
+          outputText: job.outputText
+        };
+        writeSseEvent(response, chunkEvent);
+      }
+
+      if (job.status === "completed" && job.completedAt) {
+        const completeEvent: AiStreamCompleteEvent = {
+          type: "ai.completed",
+          jobId: job.jobId,
+          status: "completed",
+          outputText: job.outputText,
+          completedAt: job.completedAt,
+          model: job.model
+        };
+        writeSseEvent(response, completeEvent);
+        response.end();
+        return;
+      }
+
+      if (job.status === "canceled" && job.canceledAt) {
+        const canceledEvent: AiStreamCanceledEvent = {
+          type: "ai.canceled",
+          jobId: job.jobId,
+          status: "canceled",
+          outputText: job.outputText,
+          canceledAt: job.canceledAt
+        };
+        writeSseEvent(response, canceledEvent);
+        response.end();
+        return;
+      }
+
+      if (job.status === "failed" && job.errorMessage) {
+        const failedEvent: AiStreamFailedEvent = {
+          type: "ai.failed",
+          jobId: job.jobId,
+          status: "failed",
+          outputText: job.outputText,
+          errorMessage: job.errorMessage
+        };
+        writeSseEvent(response, failedEvent);
+        response.end();
+        return;
+      }
+
+      job.subscribers.add(response);
+      request.on("close", () => {
+        job.subscribers.delete(response);
+      });
+      return;
+    }
+
+    const aiJobItemMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/ai\/jobs\/([^/]+)\/(cancel|decision)$/u);
+    if (request.method === "POST" && aiJobItemMatch) {
+      const [, documentId, jobId, action] = aiJobItemMatch;
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canReadDocument(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "ACCESS_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+            false,
+            { workspaceId: found.metadata.workspaceId }
+          )
+        );
+        return;
+      }
+
+      const job = aiJobs.get(jobId);
+      if (!job || job.documentId !== documentId) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(requestId, "AI_JOB_NOT_FOUND", `AI job '${jobId}' does not exist.`, false)
+        );
+        return;
+      }
+
+      if (!isAiJobOwner(authenticatedUser.value, job)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AI_JOB_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' cannot modify AI job '${jobId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      if (action === "cancel") {
+        if (
+          job.status !== "queued" &&
+          job.status !== "in_progress" &&
+          job.status !== "canceled"
+        ) {
+          json(
+            response,
+            409,
+            buildErrorEnvelope(
+              requestId,
+              "AI_JOB_NOT_CANCELABLE",
+              `AI job '${jobId}' cannot be canceled from status '${job.status}'.`,
+              false
+            )
+          );
+          return;
+        }
+
+        cancelAiJob(job);
+        json(response, 200, toAiHistoryRecord(job));
+        return;
+      }
+
+      try {
+        const rawBody = await readJsonBody(request);
+        const parsed = parseAiSuggestionDecisionRequest(rawBody);
+
+        if (!parsed.ok) {
+          json(response, 400, buildErrorEnvelope(requestId, "VALIDATION_ERROR", parsed.reason, false));
+          return;
+        }
+
+        if (job.status !== "completed") {
+          json(
+            response,
+            409,
+            buildErrorEnvelope(
+              requestId,
+              "AI_JOB_NOT_COMPLETED",
+              `AI job '${jobId}' must be completed before recording a decision.`,
+              false
+            )
+          );
+          return;
+        }
+
+        if (
+          parsed.value.decision === "undone" &&
+          job.decision !== "accepted" &&
+          job.decision !== "edited"
+        ) {
+          json(
+            response,
+            409,
+            buildErrorEnvelope(
+              requestId,
+              "AI_DECISION_CONFLICT",
+              `AI job '${jobId}' cannot be marked undone before an accepted or edited apply.`,
+              false
+            )
+          );
+          return;
+        }
+
+        if (parsed.value.decision !== "undone" && job.decision !== "pending") {
+          json(
+            response,
+            409,
+            buildErrorEnvelope(
+              requestId,
+              "AI_DECISION_CONFLICT",
+              `AI job '${jobId}' already recorded final decision '${job.decision}'.`,
+              false
+            )
+          );
+          return;
+        }
+
+        job.decision = parsed.value.decision;
+        job.appliedText = parsed.value.appliedText;
+        touchAiJob(job);
+        json(response, 200, toAiHistoryRecord(job));
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected request parsing error.";
+        json(response, 400, buildErrorEnvelope(requestId, "MALFORMED_REQUEST", message, false));
+        return;
+      }
     }
 
     const documentMatch = pathname.match(/^\/v1\/documents\/([^/]+)$/u);
