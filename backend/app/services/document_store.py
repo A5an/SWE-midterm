@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+from typing import Optional
 from uuid import uuid4
 
 from backend.app.models import (
@@ -12,7 +13,7 @@ from backend.app.models import (
 )
 
 
-@dataclass(slots=True)
+@dataclass
 class StoredDocument:
     metadata: DocumentMetadataResponse
     content: DocumentContent
@@ -24,7 +25,7 @@ class DocumentStore:
         self._documents: dict[str, StoredDocument] = {}
 
     def create(self, payload: CreateDocumentRequest) -> DocumentMetadataResponse:
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         metadata = DocumentMetadataResponse(
             documentId=f"doc_{uuid4().hex[:8]}",
             workspaceId=payload.workspaceId,
@@ -40,7 +41,7 @@ class DocumentStore:
         )
         return metadata
 
-    def get(self, document_id: str) -> DocumentDetailResponse | None:
+    def get(self, document_id: str) -> Optional[DocumentDetailResponse]:
         found = self._documents.get(document_id)
         if found is None:
             return None

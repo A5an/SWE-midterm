@@ -13,7 +13,7 @@ def test_create_document_returns_metadata_contract() -> None:
     client = make_client()
 
     response = client.post(
-        "/documents",
+        "/v1/documents",
         json={
             "workspaceId": "ws_123",
             "title": "Q3 Product Brief",
@@ -44,7 +44,7 @@ def test_load_document_returns_content_contract() -> None:
     client = make_client()
 
     created = client.post(
-        "/documents",
+        "/v1/documents",
         json={
             "workspaceId": "ws_123",
             "title": "Load Test",
@@ -61,7 +61,7 @@ def test_load_document_returns_content_contract() -> None:
         },
     ).json()
 
-    response = client.get(f"/documents/{created['documentId']}")
+    response = client.get(f"/v1/documents/{created['documentId']}")
 
     assert response.status_code == 200
     body = response.json()
@@ -79,11 +79,11 @@ def test_load_document_returns_content_contract() -> None:
     assert "updatedAt" in body
 
 
-def test_v1_routes_remain_compatible_for_existing_frontend() -> None:
+def test_documents_alias_remains_compatible() -> None:
     client = make_client()
 
     create_response = client.post(
-        "/v1/documents",
+        "/documents",
         json={
             "workspaceId": "ws_123",
             "title": "Compatibility Route",
@@ -98,7 +98,7 @@ def test_v1_routes_remain_compatible_for_existing_frontend() -> None:
     assert create_response.status_code == 201
     document_id = create_response.json()["documentId"]
 
-    load_response = client.get(f"/v1/documents/{document_id}")
+    load_response = client.get(f"/documents/{document_id}")
     assert load_response.status_code == 200
     assert load_response.json()["documentId"] == document_id
 
@@ -106,7 +106,7 @@ def test_v1_routes_remain_compatible_for_existing_frontend() -> None:
 def test_missing_document_uses_standard_error_envelope() -> None:
     client = make_client()
 
-    response = client.get("/documents/doc_missing")
+    response = client.get("/v1/documents/doc_missing")
 
     assert response.status_code == 404
     body = response.json()
@@ -119,7 +119,7 @@ def test_invalid_document_payload_uses_standard_error_envelope() -> None:
     client = make_client()
 
     response = client.post(
-        "/documents",
+        "/v1/documents",
         json={
             "workspaceId": "ws_123",
             "title": "Invalid",

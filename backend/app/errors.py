@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional, Union
 
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
@@ -16,7 +16,7 @@ class ApiApplicationError(Exception):
         code: str,
         message: str,
         retryable: bool = False,
-        details: dict[str, Any] | None = None,
+        details: Optional[dict[str, Any]] = None,
     ) -> None:
         self.status_code = status_code
         self.code = code
@@ -26,7 +26,7 @@ class ApiApplicationError(Exception):
         super().__init__(message)
 
 
-def error_message_from_validation(exc: ValidationError | RequestValidationError) -> str:
+def error_message_from_validation(exc: Union[ValidationError, RequestValidationError]) -> str:
     first_error = exc.errors()[0] if exc.errors() else {}
     message = first_error.get("msg")
     if isinstance(message, str) and message:
@@ -40,7 +40,7 @@ def build_error_envelope(
     code: str,
     message: str,
     retryable: bool,
-    details: dict[str, Any] | None = None,
+    details: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     envelope = ApiErrorEnvelope(
         error=ApiError(

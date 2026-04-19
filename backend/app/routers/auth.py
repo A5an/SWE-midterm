@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TypeVar
+from typing import Optional, TypeVar
 
 from fastapi import APIRouter, Depends, Header, Request, status
 from pydantic import BaseModel, ValidationError
@@ -92,7 +92,7 @@ def _build_tokens_for_user(
     user: StoredUser,
     store: AuthStore,
     settings: AuthSettings,
-    refresh_session_id: str | None = None,
+    refresh_session_id: Optional[str] = None,
 ) -> AuthResponse:
     refresh_session = (
         store.rotate_refresh_session(
@@ -112,7 +112,7 @@ def _build_tokens_for_user(
     return _build_auth_response(user=user, access_token=access_token, refresh_token=refresh_token)
 
 
-def _extract_bearer_token(authorization: str | None) -> str:
+def _extract_bearer_token(authorization: Optional[str]) -> str:
     if authorization is None or not authorization.strip():
         raise ApiApplicationError(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -130,19 +130,20 @@ def _extract_bearer_token(authorization: str | None) -> str:
     return token.strip()
 
 
-def get_current_user(request: Request, authorization: str | None = Header(default=None)) -> StoredUser:
+def get_current_user(request: Request, authorization: Optional[str] = Header(default=None)) -> StoredUser:
     token = _extract_bearer_token(authorization)
     settings = _get_auth_settings(request)
     store = _get_auth_store(request)
     try:
         claims = decode_access_token(token, settings)
+        store.assert_refresh_session_active(session_id=claims.session_id, user_id=claims.subject)
     except TokenExpiredError as exc:
         raise ApiApplicationError(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="AUTHN_TOKEN_EXPIRED",
             message="Access token has expired.",
         ) from exc
-    except TokenValidationError as exc:
+    except (SessionNotFoundError, TokenValidationError) as exc:
         raise ApiApplicationError(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="AUTHN_INVALID_TOKEN",

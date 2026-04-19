@@ -45,6 +45,7 @@ def test_register_hashes_password_and_returns_token_pair() -> None:
     assert response.status_code == 201
     body = response.json()
     assert body["user"]["email"] == "user@example.com"
+    assert body["user"]["workspaceRole"] == "owner"
     assert body["tokens"]["tokenType"] == "bearer"
     assert body["tokens"]["accessToken"]
     assert body["tokens"]["refreshToken"]
@@ -98,6 +99,37 @@ def test_refresh_rotates_refresh_token_and_revokes_old_one() -> None:
     assert replay.json()["error"]["code"] == "AUTHN_INVALID_TOKEN"
 
 
+def test_old_access_token_is_rejected_after_refresh_rotation() -> None:
+    client = make_client()
+    registered = register_user(client)
+    original_access = registered["tokens"]["accessToken"]
+    original_refresh = registered["tokens"]["refreshToken"]
+
+    refreshed = client.post(
+        "/v1/auth/refresh",
+        json={"refreshToken": original_refresh},
+    )
+
+    assert refreshed.status_code == 200
+
+    stale_access = client.get(
+        "/v1/me",
+        headers={"Authorization": f"Bearer {original_access}"},
+    )
+
+    assert stale_access.status_code == 401
+    assert stale_access.json()["error"]["code"] == "AUTHN_INVALID_TOKEN"
+
+    rotated_access = refreshed.json()["tokens"]["accessToken"]
+    active_access = client.get(
+        "/v1/me",
+        headers={"Authorization": f"Bearer {rotated_access}"},
+    )
+
+    assert active_access.status_code == 200
+    assert active_access.json()["workspaceRole"] == "owner"
+
+
 def test_protected_route_returns_401_without_token_and_200_with_valid_token() -> None:
     client = make_client()
 
@@ -117,6 +149,7 @@ def test_protected_route_returns_401_without_token_and_200_with_valid_token() ->
     body = authenticated.json()
     assert body["email"] == "user@example.com"
     assert body["displayName"] == "JWT Tester"
+    assert body["workspaceRole"] == "owner"
 
 
 def test_login_rejects_invalid_credentials() -> None:

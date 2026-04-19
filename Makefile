@@ -2,7 +2,6 @@
 
 install:
 	npm install
-	python3 -m pip install -r backend/requirements.txt
 
 run:
 	./run.sh

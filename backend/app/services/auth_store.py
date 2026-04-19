@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal, Optional
 from uuid import uuid4
 
 
@@ -20,7 +21,7 @@ class StoredUser:
     display_name: str
     password_hash: str
     created_at: datetime
-    workspace_role: str = "member"
+    workspace_role: Literal["owner", "editor", "commenter", "viewer"] = "owner"
 
 
 @dataclass(slots=True)
@@ -29,7 +30,7 @@ class RefreshSession:
     user_id: str
     created_at: datetime
     expires_at: datetime
-    revoked_at: datetime | None = None
+    revoked_at: Optional[datetime] = None
 
 
 class AuthStore:
@@ -55,10 +56,10 @@ class AuthStore:
         self._users_by_email[user.email] = user
         return user
 
-    def get_user_by_email(self, email: str) -> StoredUser | None:
+    def get_user_by_email(self, email: str) -> Optional[StoredUser]:
         return self._users_by_email.get(email.strip().lower())
 
-    def get_user_by_id(self, user_id: str) -> StoredUser | None:
+    def get_user_by_id(self, user_id: str) -> Optional[StoredUser]:
         return self._users_by_id.get(user_id)
 
     def create_refresh_session(self, *, user_id: str, ttl_seconds: int) -> RefreshSession:
@@ -72,7 +73,7 @@ class AuthStore:
         self._refresh_sessions[session.session_id] = session
         return session
 
-    def get_refresh_session(self, session_id: str) -> RefreshSession | None:
+    def get_refresh_session(self, session_id: str) -> Optional[RefreshSession]:
         return self._refresh_sessions.get(session_id)
 
     def assert_refresh_session_active(self, *, session_id: str, user_id: str) -> RefreshSession:

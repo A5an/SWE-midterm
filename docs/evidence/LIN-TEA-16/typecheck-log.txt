@@ -1,0 +1,24 @@
+
+> swe-midterm@0.1.0 typecheck
+> npm --workspace @swe-midterm/contracts run typecheck && npm --workspace @swe-midterm/api run typecheck && ([ -d apps/web ] && npm --workspace @swe-midterm/web run typecheck || true)
+
+
+> @swe-midterm/contracts@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+
+> @swe-midterm/api@0.1.0 pretypecheck
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/api@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+
+> @swe-midterm/web@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+

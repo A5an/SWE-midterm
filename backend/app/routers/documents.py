@@ -73,7 +73,7 @@ async def health(request: Request) -> dict[str, str]:
 
 
 @router.post(
-    "/documents",
+    "/v1/documents",
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentMetadataResponse,
     responses={400: {"model": ApiErrorEnvelope}},
@@ -85,18 +85,18 @@ async def create_document(request: Request) -> DocumentMetadataResponse:
 
 
 @router.post(
-    "/v1/documents",
+    "/documents",
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentMetadataResponse,
     responses={400: {"model": ApiErrorEnvelope}},
     include_in_schema=False,
 )
-async def create_document_v1(request: Request) -> DocumentMetadataResponse:
+async def create_document_compat(request: Request) -> DocumentMetadataResponse:
     return await _create_document(request)
 
 
 @router.get(
-    "/documents/{document_id}",
+    "/v1/documents/{document_id}",
     response_model=DocumentDetailResponse,
     responses={404: {"model": ApiErrorEnvelope}},
     summary="Load a document",
@@ -107,10 +107,10 @@ async def load_document(document_id: str, request: Request) -> DocumentDetailRes
 
 
 @router.get(
-    "/v1/documents/{document_id}",
+    "/documents/{document_id}",
     response_model=DocumentDetailResponse,
     responses={404: {"model": ApiErrorEnvelope}},
     include_in_schema=False,
 )
-async def load_document_v1(document_id: str, request: Request) -> DocumentDetailResponse:
+async def load_document_compat(document_id: str, request: Request) -> DocumentDetailResponse:
     return _load_document(document_id, request)

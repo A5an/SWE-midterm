@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -17,9 +18,9 @@ from backend.app.services.document_store import DocumentStore
 
 
 def create_app(
-    store: DocumentStore | None = None,
-    auth_store: AuthStore | None = None,
-    auth_settings: AuthSettings | None = None,
+    store: Optional[DocumentStore] = None,
+    auth_store: Optional[AuthStore] = None,
+    auth_settings: Optional[AuthSettings] = None,
 ) -> FastAPI:
     app = FastAPI(
         title="SWE Midterm FastAPI Backend",

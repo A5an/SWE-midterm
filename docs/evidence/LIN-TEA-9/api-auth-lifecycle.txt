@@ -1,18 +1,42 @@
 JWT auth lifecycle evidence
 
-register: 201
 login: 200
 refresh: 200
+stale access after refresh rotation: 401
+replayed refresh after rotation: 401
+rotated access on protected route: 200
 
-access token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6...
-rotated access prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6...
-refresh token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6...
+login access token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX...
+rotated access token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX...
+rotated refresh token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX...
 
-login user:
+current user payload:
 {
-  "userId": "usr_451f9c1a",
-  "email": "jwt-demo@example.com",
+  "userId": "usr_a9643b65",
+  "email": "jwt-demo-1776612992@example.com",
   "displayName": "JWT Demo User",
-  "workspaceRole": "member",
-  "createdAt": "2026-04-16T18:03:03.432390Z"
+  "workspaceRole": "owner",
+  "createdAt": "2026-04-19T15:36:32.371263Z"
+}
+
+stale access error:
+{
+  "error": {
+    "code": "AUTHN_INVALID_TOKEN",
+    "message": "Access token is invalid.",
+    "retryable": false,
+    "requestId": "req_4df9ee059353",
+    "details": null
+  }
+}
+
+refresh replay error:
+{
+  "error": {
+    "code": "AUTHN_INVALID_TOKEN",
+    "message": "Refresh token is invalid.",
+    "retryable": false,
+    "requestId": "req_17b52512ebfc",
+    "details": null
+  }
 }

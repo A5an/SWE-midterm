@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+WorkspaceRole = Literal["owner", "editor", "commenter", "viewer"]
 
 
 class DocumentParagraph(BaseModel):
@@ -20,7 +22,7 @@ class DocumentContent(BaseModel):
 class CreateDocumentRequest(BaseModel):
     workspaceId: str
     title: str
-    templateId: str | None = None
+    templateId: Optional[str] = None
     initialContent: DocumentContent
 
     @field_validator("workspaceId")
@@ -85,7 +87,7 @@ class ApiError(BaseModel):
     message: str
     retryable: bool
     requestId: str
-    details: dict[str, Any] | None = None
+    details: Optional[dict[str, Any]] = None
 
 
 class ApiErrorEnvelope(BaseModel):
@@ -163,7 +165,7 @@ class UserProfileResponse(BaseModel):
                 "userId": "usr_123",
                 "email": "user@example.com",
                 "displayName": "Dachi",
-                "workspaceRole": "member",
+                "workspaceRole": "owner",
                 "createdAt": "2026-04-16T10:20:00Z",
             }
         }
@@ -172,7 +174,7 @@ class UserProfileResponse(BaseModel):
     userId: str
     email: str
     displayName: str
-    workspaceRole: Literal["member"] = "member"
+    workspaceRole: WorkspaceRole = "owner"
     createdAt: datetime
 
 
@@ -204,7 +206,7 @@ class AuthResponse(BaseModel):
                     "userId": "usr_123",
                     "email": "user@example.com",
                     "displayName": "Dachi",
-                    "workspaceRole": "member",
+                    "workspaceRole": "owner",
                     "createdAt": "2026-04-16T10:20:00Z",
                 },
                 "tokens": {
