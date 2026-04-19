@@ -50,7 +50,7 @@ export const mountApp = (root: HTMLElement): void => {
         <p class="eyebrow">Assignment 2 Collaboration Baseline</p>
         <h1>Authenticated WebSocket + Presence + Reconnect Demo</h1>
         <p class="summary">
-          Create or load a document, sign in with a trusted demo identity, then join
+          Sign in with a trusted demo identity, then create or load a document and join
           as different users in two browser windows to verify presence plus reconnect-safe text sync.
         </p>
       </header>
@@ -110,7 +110,8 @@ export const mountApp = (root: HTMLElement): void => {
         </div>
         <p class="hint">
           Demo credentials: <code>usr_assanali</code> / <code>demo-assanali</code>,
-          <code>usr_alaa</code> / <code>demo-alaa</code>, <code>usr_dachi</code> / <code>demo-dachi</code>.
+          <code>usr_alaa</code> / <code>demo-alaa</code>, <code>usr_dachi</code> / <code>demo-dachi</code>,
+          <code>usr_editor</code> / <code>demo-editor</code>, <code>usr_viewer</code> / <code>demo-viewer</code>.
         </p>
 
         <div class="session-bar">
@@ -644,7 +645,9 @@ export const mountApp = (root: HTMLElement): void => {
     }
 
     setStatus(`Loading ${documentId}...`);
-    const response = await fetch(`${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}`);
+    const response = await fetch(`${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}`, {
+      headers: currentAuthHeaders()
+    });
     const payload = await readJson(response);
 
     if (!response.ok) {

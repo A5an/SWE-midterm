@@ -1,0 +1,25 @@
+
+> swe-midterm@0.1.0 test
+> npm --workspace @swe-midterm/api run test
+
+
+> @swe-midterm/api@0.1.0 pretest
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/api@0.1.0 test
+> node --experimental-strip-types src/contract-test.ts
+
+ws-auth: invalid token rejected with HTTP 401
+share-gate: external user denied before explicit share
+rbac: role matrix includes owner, workspace editors, shared editor, and shared viewer
+rbac: viewer direct API edit rejected with 403 AUTHZ_FORBIDDEN
+presence: owner and shared editor see the same online user list
+presence: disconnect removed the offline shared editor from the room
+reconnect: resync applied once and the latest shared text persisted
+rbac: downgraded editor session token can no longer mutate or reconnect
+API + websocket contract tests passed.

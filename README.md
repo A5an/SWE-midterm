@@ -5,13 +5,14 @@ Minimal proof-of-concept for the **Collaborative Document Editor with AI Writing
 This PoC demonstrates:
 - A working frontend (`apps/web`)
 - A working backend API (`apps/api`)
-- End-to-end frontend-backend communication for document create/load
+- Authenticated document create/load with shared API contracts
+- Document-level RBAC + sharing API (`owner` / `editor` / `viewer`)
 - Demo-authenticated collaboration session bootstrap with presence and reconnect resync
 - Shared API data contracts via `packages/contracts`
 
 This PoC intentionally does **not** implement yet:
 - AI orchestration (`apps/ai-worker` is placeholder)
-- Full JWT login/refresh flow, sharing, version restore, export
+- Full JWT login/refresh flow, version restore, export
 - Separate collaboration container deployment (`apps/collab` remains a placeholder while baseline runs in `apps/api`)
 
 ## Prerequisites
@@ -75,6 +76,8 @@ Demo login credentials for the collaboration baseline:
 - `usr_assanali` / `demo-assanali`
 - `usr_alaa` / `demo-alaa`
 - `usr_dachi` / `demo-dachi`
+- `usr_editor` / `demo-editor`
+- `usr_viewer` / `demo-viewer`
 
 ## What to Demo (3 minutes max)
 
@@ -103,10 +106,12 @@ npm test
 The test validates that responses and events match shared contracts:
 - `DocumentMetadataResponse`
 - `DocumentDetailResponse`
+- `DocumentPermissionsResponse`
+- `DocumentShareResponse`
 - `DemoLoginResponse`
 - `ApiErrorEnvelope`
 - `CollaborationSessionResponse`
-- Demo login auth, session bootstrap authorization, WebSocket auth, presence, and reconnect replay behavior
+- Demo login auth, document RBAC/share enforcement, session bootstrap authorization, WebSocket auth, presence, and reconnect replay behavior
 
 ## Repository Shape (PoC-relevant)
 

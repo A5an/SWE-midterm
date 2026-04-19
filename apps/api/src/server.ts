@@ -10,8 +10,10 @@ import { URL, fileURLToPath } from "node:url";
 import {
   parseCollaborationClientMessage,
   parseCollaborationSessionRequest,
+  parseCreateDocumentShareRequest,
   parseCreateDocumentRequest,
   parseDemoLoginRequest,
+  parseUpdateDocumentRequest,
   type ApiErrorEnvelope,
   type CollaborationParticipant,
   type CollaborationServerAckMessage,
@@ -22,7 +24,11 @@ import {
   type CollaborationServerUpdateMessage,
   type DocumentContent,
   type DocumentDetailResponse,
-  type DocumentMetadataResponse
+  type DocumentMetadataResponse,
+  type DocumentPermissionEntry,
+  type DocumentPermissionsResponse,
+  type DocumentShareResponse,
+  type SharingRole
 } from "@swe-midterm/contracts";
 
 interface MutationRecord {
@@ -50,10 +56,20 @@ interface CollaborationState {
   text: string;
 }
 
+interface StoredShare {
+  grantedAt: string;
+  grantedByUserId: string;
+  permissionLevel: SharingRole;
+  shareId: string;
+  userId: string;
+}
+
 interface StoredDocument {
   collaboration: CollaborationState;
   content: DocumentContent;
   metadata: DocumentMetadataResponse;
+  ownerUserId: string;
+  shares: Map<string, StoredShare>;
   updatedAt: string;
 }
 
@@ -80,6 +96,7 @@ type SignedTokenPayload = AccessTokenPayload | SessionTokenPayload;
 
 interface DemoUser {
   displayName: string;
+  email: string;
   password: string;
   workspaceIds: string[];
 }
@@ -89,12 +106,18 @@ const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 const SESSION_TOKEN_TTL_SECONDS = 20 * 60;
 const SESSION_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET?.trim() || "dev-collab-secret";
 const MAX_MUTATION_HISTORY = 200;
+const ROLE_PRIORITY: Record<SharingRole, number> = {
+  owner: 0,
+  editor: 1,
+  viewer: 2
+};
 const WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const DEMO_USERS = new Map<string, DemoUser>([
   [
     "usr_assanali",
     {
       displayName: "Assanali",
+      email: "assanali@demo.local",
       password: "demo-assanali",
       workspaceIds: ["ws_123"]
     }
@@ -103,6 +126,7 @@ const DEMO_USERS = new Map<string, DemoUser>([
     "usr_alaa",
     {
       displayName: "Alaa",
+      email: "alaa@demo.local",
       password: "demo-alaa",
       workspaceIds: ["ws_123"]
     }
@@ -111,14 +135,25 @@ const DEMO_USERS = new Map<string, DemoUser>([
     "usr_dachi",
     {
       displayName: "Dachi",
+      email: "dachi@demo.local",
       password: "demo-dachi",
       workspaceIds: ["ws_123"]
+    }
+  ],
+  [
+    "usr_editor",
+    {
+      displayName: "Editor",
+      email: "editor@demo.local",
+      password: "demo-editor",
+      workspaceIds: ["ws_partner"]
     }
   ],
   [
     "usr_viewer",
     {
       displayName: "Viewer",
+      email: "viewer@demo.local",
       password: "demo-viewer",
       workspaceIds: ["ws_other"]
     }
@@ -133,7 +168,7 @@ const json = (response: ServerResponse, statusCode: number, body: unknown): void
 
 const setCorsHeaders = (response: ServerResponse): void => {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 };
 
@@ -346,6 +381,20 @@ const createCreateDocumentResponse = (workspaceId: string, title: string): Docum
   };
 };
 
+const lookupDemoUser = (userId: string): DemoUser | null => DEMO_USERS.get(userId) ?? null;
+
+const resolvePrincipalUser = (principalId: string): [string, DemoUser] | null => {
+  const normalizedPrincipal = principalId.trim().toLowerCase();
+
+  for (const [userId, demoUser] of DEMO_USERS.entries()) {
+    if (userId.toLowerCase() === normalizedPrincipal || demoUser.email.toLowerCase() === normalizedPrincipal) {
+      return [userId, demoUser];
+    }
+  }
+
+  return null;
+};
+
 const authenticateRequest = (
   request: IncomingMessage
 ): { ok: true; value: AccessTokenPayload } | { ok: false; code: string; message: string; statusCode: number } => {
@@ -370,11 +419,133 @@ const authenticateRequest = (
     };
   }
 
+  if (!lookupDemoUser(verified.value.sub)) {
+    return {
+      ok: false,
+      code: "AUTH_INVALID_TOKEN",
+      message: "Token subject is not a known demo user.",
+      statusCode: 401
+    };
+  }
+
   return { ok: true, value: verified.value };
 };
 
-const canAccessDocument = (user: AccessTokenPayload, document: StoredDocument): boolean =>
-  user.workspaceIds.includes(document.metadata.workspaceId);
+const getStoredShareForUser = (document: StoredDocument, userId: string): StoredShare | null => {
+  for (const share of document.shares.values()) {
+    if (share.userId === userId) {
+      return share;
+    }
+  }
+
+  return null;
+};
+
+const resolveDocumentRole = (
+  user: AccessTokenPayload,
+  document: StoredDocument
+): SharingRole | null => {
+  if (document.ownerUserId === user.sub) {
+    return "owner";
+  }
+
+  const explicitShare = getStoredShareForUser(document, user.sub);
+  if (explicitShare) {
+    return explicitShare.permissionLevel;
+  }
+
+  if (user.workspaceIds.includes(document.metadata.workspaceId)) {
+    return "editor";
+  }
+
+  return null;
+};
+
+const canReadDocument = (user: AccessTokenPayload, document: StoredDocument): boolean =>
+  resolveDocumentRole(user, document) !== null;
+
+const canEditDocument = (user: AccessTokenPayload, document: StoredDocument): boolean => {
+  const role = resolveDocumentRole(user, document);
+  return role === "owner" || role === "editor";
+};
+
+const canManageDocumentShares = (user: AccessTokenPayload, document: StoredDocument): boolean =>
+  resolveDocumentRole(user, document) === "owner";
+
+const buildCurrentAccessContext = (
+  userId: string,
+  fallbackName: string
+): AccessTokenPayload | null => {
+  const demoUser = lookupDemoUser(userId);
+  if (!demoUser) {
+    return null;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    tokenUse: "api_access",
+    sub: userId,
+    name: demoUser.displayName || fallbackName,
+    workspaceIds: demoUser.workspaceIds,
+    iat: now,
+    exp: now + ACCESS_TOKEN_TTL_SECONDS
+  };
+};
+
+const buildPermissionEntry = (
+  userId: string,
+  demoUser: DemoUser,
+  permissionLevel: SharingRole,
+  source: DocumentPermissionEntry["source"],
+  shareId: string | null
+): DocumentPermissionEntry => ({
+  shareId,
+  source,
+  userId,
+  email: demoUser.email,
+  displayName: demoUser.displayName,
+  permissionLevel
+});
+
+const buildPermissionsResponse = (document: StoredDocument): DocumentPermissionsResponse => {
+  const permissions: DocumentPermissionEntry[] = [];
+
+  for (const [userId, demoUser] of DEMO_USERS.entries()) {
+    let permissionLevel: SharingRole | null = null;
+    let source: DocumentPermissionEntry["source"] | null = null;
+    let shareId: string | null = null;
+
+    if (userId === document.ownerUserId) {
+      permissionLevel = "owner";
+      source = "owner";
+    } else {
+      const share = getStoredShareForUser(document, userId);
+      if (share) {
+        permissionLevel = share.permissionLevel;
+        source = "share";
+        shareId = share.shareId;
+      } else if (demoUser.workspaceIds.includes(document.metadata.workspaceId)) {
+        permissionLevel = "editor";
+        source = "workspace";
+      }
+    }
+
+    if (permissionLevel && source) {
+      permissions.push(buildPermissionEntry(userId, demoUser, permissionLevel, source, shareId));
+    }
+  }
+
+  permissions.sort(
+    (left, right) =>
+      ROLE_PRIORITY[left.permissionLevel] - ROLE_PRIORITY[right.permissionLevel] ||
+      left.displayName.localeCompare(right.displayName)
+  );
+
+  return {
+    documentId: document.metadata.documentId,
+    permissions
+  };
+};
 
 const createCollaborationState = (documentText: string): CollaborationState => ({
   mutationHistory: new Map(),
@@ -416,9 +587,19 @@ const rememberMutation = (state: CollaborationState, mutation: MutationRecord): 
 
 const writeUpgradeResponse = (socket: Duplex, statusCode: number, body: ApiErrorEnvelope): void => {
   const bodyText = JSON.stringify(body);
+  const statusText =
+    statusCode === 400
+      ? "Bad Request"
+      : statusCode === 401
+        ? "Unauthorized"
+        : statusCode === 403
+          ? "Forbidden"
+          : statusCode === 404
+            ? "Not Found"
+            : "Error";
   socket.write(
     [
-      `HTTP/1.1 ${statusCode} ${statusCode === 401 ? "Unauthorized" : "Bad Request"}`,
+      `HTTP/1.1 ${statusCode} ${statusText}`,
       "Connection: close",
       "Content-Type: application/json; charset=utf-8",
       `Content-Length: ${Buffer.byteLength(bodyText)}`,
@@ -631,6 +812,16 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
 
     if (request.method === "POST" && pathname === "/v1/documents") {
       try {
+        const authenticatedUser = authenticateRequest(request);
+        if (!authenticatedUser.ok) {
+          json(
+            response,
+            authenticatedUser.statusCode,
+            buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+          );
+          return;
+        }
+
         const rawBody = await readJsonBody(request);
         const parsed = parseCreateDocumentRequest(rawBody);
 
@@ -639,16 +830,314 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           return;
         }
 
+        if (!authenticatedUser.value.workspaceIds.includes(parsed.value.workspaceId)) {
+          json(
+            response,
+            403,
+            buildErrorEnvelope(
+              requestId,
+              "AUTHZ_FORBIDDEN",
+              `User '${authenticatedUser.value.sub}' cannot create documents in workspace '${parsed.value.workspaceId}'.`,
+              false
+            )
+          );
+          return;
+        }
+
         const metadata = createCreateDocumentResponse(parsed.value.workspaceId, parsed.value.title);
         const storedDocument: StoredDocument = {
           collaboration: createCollaborationState(toParagraphText(parsed.value.initialContent)),
           content: parsed.value.initialContent,
           metadata,
+          ownerUserId: authenticatedUser.value.sub,
+          shares: new Map(),
           updatedAt: metadata.createdAt
         };
 
         store.set(metadata.documentId, storedDocument);
         json(response, 201, metadata);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected request parsing error.";
+        json(response, 400, buildErrorEnvelope(requestId, "MALFORMED_REQUEST", message, false));
+        return;
+      }
+    }
+
+    const permissionsMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/permissions$/u);
+    if (request.method === "GET" && permissionsMatch) {
+      const [, documentId] = permissionsMatch;
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canManageDocumentShares(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' cannot view sharing controls for document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      json(response, 200, buildPermissionsResponse(found));
+      return;
+    }
+
+    const shareCollectionMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/shares$/u);
+    if (request.method === "POST" && shareCollectionMatch) {
+      const [, documentId] = shareCollectionMatch;
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canManageDocumentShares(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' cannot manage sharing for document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      try {
+        const rawBody = await readJsonBody(request);
+        const parsed = parseCreateDocumentShareRequest(rawBody);
+
+        if (!parsed.ok) {
+          json(response, 400, buildErrorEnvelope(requestId, "VALIDATION_ERROR", parsed.reason, false));
+          return;
+        }
+
+        const principalUser = resolvePrincipalUser(parsed.value.principalId);
+        if (!principalUser) {
+          json(
+            response,
+            404,
+            buildErrorEnvelope(
+              requestId,
+              "USER_NOT_FOUND",
+              `No known user matches '${parsed.value.principalId}'.`,
+              false
+            )
+          );
+          return;
+        }
+
+        const [sharedUserId, sharedUser] = principalUser;
+        if (sharedUserId === found.ownerUserId) {
+          json(
+            response,
+            400,
+            buildErrorEnvelope(
+              requestId,
+              "VALIDATION_ERROR",
+              "The document owner already has owner access.",
+              false
+            )
+          );
+          return;
+        }
+
+        let share = getStoredShareForUser(found, sharedUserId);
+        const nowIso = new Date().toISOString();
+        const isNewShare = share === null;
+
+        if (!share) {
+          share = {
+            grantedAt: nowIso,
+            grantedByUserId: authenticatedUser.value.sub,
+            permissionLevel: parsed.value.permissionLevel,
+            shareId: `shr_${randomUUID().slice(0, 8)}`,
+            userId: sharedUserId
+          };
+        } else {
+          share.permissionLevel = parsed.value.permissionLevel;
+          share.grantedAt = nowIso;
+          share.grantedByUserId = authenticatedUser.value.sub;
+        }
+
+        found.shares.set(share.shareId, share);
+
+        const shareResponse: DocumentShareResponse = {
+          documentId,
+          permission: buildPermissionEntry(
+            sharedUserId,
+            sharedUser,
+            share.permissionLevel,
+            "share",
+            share.shareId
+          )
+        };
+
+        json(response, isNewShare ? 201 : 200, shareResponse);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected request parsing error.";
+        json(response, 400, buildErrorEnvelope(requestId, "MALFORMED_REQUEST", message, false));
+        return;
+      }
+    }
+
+    const shareItemMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/shares\/([^/]+)$/u);
+    if (shareItemMatch && (request.method === "PATCH" || request.method === "DELETE")) {
+      const [, documentId, shareId] = shareItemMatch;
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canManageDocumentShares(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' cannot manage sharing for document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const share = found.shares.get(shareId);
+      if (!share) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "SHARE_NOT_FOUND",
+            `Share '${shareId}' does not exist for document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      if (request.method === "DELETE") {
+        found.shares.delete(shareId);
+        response.statusCode = 204;
+        response.end();
+        return;
+      }
+
+      try {
+        const rawBody = await readJsonBody(request);
+        const parsed = parseCreateDocumentShareRequest(rawBody);
+
+        if (!parsed.ok) {
+          json(response, 400, buildErrorEnvelope(requestId, "VALIDATION_ERROR", parsed.reason, false));
+          return;
+        }
+
+        share.permissionLevel = parsed.value.permissionLevel;
+        share.grantedAt = new Date().toISOString();
+        share.grantedByUserId = authenticatedUser.value.sub;
+
+        const sharedUser = lookupDemoUser(share.userId);
+        if (!sharedUser) {
+          json(
+            response,
+            404,
+            buildErrorEnvelope(
+              requestId,
+              "USER_NOT_FOUND",
+              `User '${share.userId}' is no longer available in the demo directory.`,
+              false
+            )
+          );
+          return;
+        }
+
+        const shareResponse: DocumentShareResponse = {
+          documentId,
+          permission: buildPermissionEntry(
+            share.userId,
+            sharedUser,
+            share.permissionLevel,
+            "share",
+            share.shareId
+          )
+        };
+
+        json(response, 200, shareResponse);
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unexpected request parsing error.";
@@ -695,14 +1184,14 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           return;
         }
 
-        if (!canAccessDocument(authenticatedUser.value, found)) {
+        if (!canEditDocument(authenticatedUser.value, found)) {
           json(
             response,
             403,
             buildErrorEnvelope(
               requestId,
-              "ACCESS_FORBIDDEN",
-              `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+              "AUTHZ_FORBIDDEN",
+              `User '${authenticatedUser.value.sub}' does not have edit access to document '${documentId}'.`,
               false,
               { workspaceId: found.metadata.workspaceId }
             )
@@ -761,6 +1250,30 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         return;
       }
 
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canReadDocument(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
       const collaboration = ensureCollaborationState(found);
       const participant = collaboration.participants.get(sessionId);
 
@@ -789,7 +1302,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
     }
 
     const documentMatch = pathname.match(/^\/v1\/documents\/([^/]+)$/u);
-    if (request.method === "GET" && documentMatch) {
+    if ((request.method === "GET" || request.method === "PATCH") && documentMatch) {
       const [, documentId] = documentMatch;
       const found = store.get(documentId);
 
@@ -807,13 +1320,86 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         return;
       }
 
-      const detail: DocumentDetailResponse = {
-        ...found.metadata,
-        content: found.content,
-        updatedAt: found.updatedAt
-      };
-      json(response, 200, detail);
-      return;
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (request.method === "GET") {
+        if (!canReadDocument(authenticatedUser.value, found)) {
+          json(
+            response,
+            403,
+            buildErrorEnvelope(
+              requestId,
+              "AUTHZ_FORBIDDEN",
+              `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+              false
+            )
+          );
+          return;
+        }
+
+        const detail: DocumentDetailResponse = {
+          ...found.metadata,
+          content: found.content,
+          updatedAt: found.updatedAt
+        };
+        json(response, 200, detail);
+        return;
+      }
+
+      if (!canEditDocument(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' cannot edit document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      try {
+        const rawBody = await readJsonBody(request);
+        const parsed = parseUpdateDocumentRequest(rawBody);
+
+        if (!parsed.ok) {
+          json(response, 400, buildErrorEnvelope(requestId, "VALIDATION_ERROR", parsed.reason, false));
+          return;
+        }
+
+        if (parsed.value.title) {
+          found.metadata.title = parsed.value.title;
+        }
+
+        found.content = parsed.value.content;
+        found.updatedAt = new Date().toISOString();
+
+        const collaboration = ensureCollaborationState(found);
+        collaboration.serverRevision += 1;
+        collaboration.text = toParagraphText(parsed.value.content);
+
+        const detail: DocumentDetailResponse = {
+          ...found.metadata,
+          content: found.content,
+          updatedAt: found.updatedAt
+        };
+        json(response, 200, detail);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unexpected request parsing error.";
+        json(response, 400, buildErrorEnvelope(requestId, "MALFORMED_REQUEST", message, false));
+        return;
+      }
     }
 
     json(
@@ -870,6 +1456,21 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           requestId,
           "DOCUMENT_NOT_FOUND",
           `Document '${verifiedToken.value.documentId}' does not exist.`,
+          false
+        )
+      );
+      return;
+    }
+
+    const currentUser = buildCurrentAccessContext(verifiedToken.value.sub, verifiedToken.value.name);
+    if (!currentUser || !canEditDocument(currentUser, document)) {
+      writeUpgradeResponse(
+        socket,
+        403,
+        buildErrorEnvelope(
+          requestId,
+          "AUTHZ_FORBIDDEN",
+          `User '${verifiedToken.value.sub}' no longer has edit access to document '${verifiedToken.value.documentId}'.`,
           false
         )
       );
@@ -979,6 +1580,18 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           message: "Client sessionId does not match the authenticated websocket session."
         };
         sendWebSocketJson(socket, errorMessage);
+        return;
+      }
+
+      const currentUser = buildCurrentAccessContext(participant.userId, participant.displayName);
+      if (!currentUser || !canEditDocument(currentUser, document)) {
+        const errorMessage: CollaborationServerErrorMessage = {
+          type: "server.error",
+          code: "COLLAB_ACCESS_REVOKED",
+          message: `User '${participant.userId}' no longer has edit access to document '${document.metadata.documentId}'.`
+        };
+        sendWebSocketJson(socket, errorMessage);
+        closeConnection();
         return;
       }
 

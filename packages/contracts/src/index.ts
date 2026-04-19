@@ -1,4 +1,5 @@
 export type UserRole = "owner" | "editor" | "commenter" | "viewer";
+export type SharingRole = Extract<UserRole, "owner" | "editor" | "viewer">;
 
 export type AiFeatureType = "rewrite" | "summarize" | "translate" | "restructure";
 
@@ -33,6 +34,36 @@ export interface DocumentMetadataResponse {
 export interface DocumentDetailResponse extends DocumentMetadataResponse {
   content: DocumentContent;
   updatedAt: string;
+}
+
+export interface UpdateDocumentRequest {
+  title?: string;
+  content: DocumentContent;
+}
+
+export interface DocumentPermissionEntry {
+  shareId: string | null;
+  source: "owner" | "workspace" | "share";
+  userId: string;
+  email: string;
+  displayName: string;
+  permissionLevel: SharingRole;
+}
+
+export interface DocumentPermissionsResponse {
+  documentId: string;
+  permissions: DocumentPermissionEntry[];
+}
+
+export interface CreateDocumentShareRequest {
+  principalType: "user";
+  principalId: string;
+  permissionLevel: SharingRole;
+}
+
+export interface DocumentShareResponse {
+  documentId: string;
+  permission: DocumentPermissionEntry;
 }
 
 export interface ApiErrorEnvelope {
@@ -158,6 +189,9 @@ const isNonEmptyString = (value: unknown): value is string =>
 const isCollaborationActivity = (value: unknown): value is CollaborationActivity =>
   value === "idle" || value === "editing";
 
+const isSharingRole = (value: unknown): value is SharingRole =>
+  value === "owner" || value === "editor" || value === "viewer";
+
 export const isDocumentContent = (value: unknown): value is DocumentContent => {
   if (!isRecord(value)) {
     return false;
@@ -207,6 +241,30 @@ export const parseCreateDocumentRequest = (value: unknown): ParseResult<CreateDo
   };
 };
 
+export const parseUpdateDocumentRequest = (value: unknown): ParseResult<UpdateDocumentRequest> => {
+  if (!isRecord(value)) {
+    return { ok: false, reason: "Request body must be a JSON object." };
+  }
+
+  const { title, content } = value;
+
+  if (title !== undefined && !isNonEmptyString(title)) {
+    return { ok: false, reason: "title must be omitted or a non-empty string." };
+  }
+
+  if (!isDocumentContent(content)) {
+    return { ok: false, reason: "content must match document content schema." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      title,
+      content
+    }
+  };
+};
+
 export const parseCollaborationSessionRequest = (
   value: unknown
 ): ParseResult<CollaborationSessionRequest> => {
@@ -239,6 +297,37 @@ export const parseDemoLoginRequest = (value: unknown): ParseResult<DemoLoginRequ
     value: {
       userId,
       password
+    }
+  };
+};
+
+export const parseCreateDocumentShareRequest = (
+  value: unknown
+): ParseResult<CreateDocumentShareRequest> => {
+  if (!isRecord(value)) {
+    return { ok: false, reason: "Request body must be a JSON object." };
+  }
+
+  const { principalType, principalId, permissionLevel } = value;
+
+  if (principalType !== "user") {
+    return { ok: false, reason: "principalType must be 'user'." };
+  }
+
+  if (!isNonEmptyString(principalId)) {
+    return { ok: false, reason: "principalId must be a non-empty string." };
+  }
+
+  if (!isSharingRole(permissionLevel)) {
+    return { ok: false, reason: "permissionLevel must be one of owner, editor, viewer." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      principalType,
+      principalId,
+      permissionLevel
     }
   };
 };
@@ -323,6 +412,43 @@ export const isDocumentDetailResponse = (value: unknown): value is DocumentDetai
     return false;
   }
   return isDocumentContent(value.content) && isIsoDateString(value.updatedAt);
+};
+
+export const isDocumentPermissionEntry = (value: unknown): value is DocumentPermissionEntry => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    (value.shareId === null || isNonEmptyString(value.shareId)) &&
+    (value.source === "owner" || value.source === "workspace" || value.source === "share") &&
+    isNonEmptyString(value.userId) &&
+    isNonEmptyString(value.email) &&
+    isNonEmptyString(value.displayName) &&
+    isSharingRole(value.permissionLevel)
+  );
+};
+
+export const isDocumentPermissionsResponse = (
+  value: unknown
+): value is DocumentPermissionsResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.documentId) &&
+    Array.isArray(value.permissions) &&
+    value.permissions.every((permission) => isDocumentPermissionEntry(permission))
+  );
+};
+
+export const isDocumentShareResponse = (value: unknown): value is DocumentShareResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return isNonEmptyString(value.documentId) && isDocumentPermissionEntry(value.permission);
 };
 
 export const isApiErrorEnvelope = (value: unknown): value is ApiErrorEnvelope => {
