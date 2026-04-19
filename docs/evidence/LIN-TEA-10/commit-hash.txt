@@ -1,1 +1,1 @@
-8d05a7f092c427dc276b2b08b7b81db0c576daa3 - feat: add TEA-10 sharing RBAC API
+5a4a0795c25e55b37f508df7f1a4573fbf3397ff - fix: require auth on session status route

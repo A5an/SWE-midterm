@@ -2,7 +2,7 @@
 
 - Linear issue: `LIN-TEA-10`
 - Branch used in this workspace: `feat/LIN-TEA-10-RBAC+sharing-API`
-- Evidence generated from commit: `8d05a7f092c427dc276b2b08b7b81db0c576daa3`
+- Evidence generated from commit: `5a4a0795c25e55b37f508df7f1a4573fbf3397ff`
 - PR link note: use `docs/evidence/LIN-TEA-10/pr-link.txt` for the compare/open-PR URL. This evidence is intentionally anchored to the evidence-producing commit instead of the moving branch head.
 
 ## What changed and why

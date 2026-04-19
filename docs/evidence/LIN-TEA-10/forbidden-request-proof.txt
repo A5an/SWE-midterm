@@ -2,14 +2,14 @@ Owner login:
 {
   "status": 200,
   "body": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlblVzZSI6ImFwaV9hY2Nlc3MiLCJzdWIiOiJ1c3JfYXNzYW5hbGkiLCJuYW1lIjoiQXNzYW5hbGkiLCJ3b3Jrc3BhY2VJZHMiOlsid3NfMTIzIl0sImlhdCI6MTc3NjYxNDg3MCwiZXhwIjoxNzc2NjQzNjcwfQ.NNDhAPzW-vA0RhkheY95scXKEEAK2ZcDgHgg_YiPuu4",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlblVzZSI6ImFwaV9hY2Nlc3MiLCJzdWIiOiJ1c3JfYXNzYW5hbGkiLCJuYW1lIjoiQXNzYW5hbGkiLCJ3b3Jrc3BhY2VJZHMiOlsid3NfMTIzIl0sImlhdCI6MTc3NjYxNTAxMiwiZXhwIjoxNzc2NjQzODEyfQ.S2aWCCXDNH_YeyscqdMmtV7H1kMobxjYZLYiIbRZmwM",
     "userId": "usr_assanali",
     "displayName": "Assanali",
     "workspaceIds": [
       "ws_123"
     ],
-    "issuedAt": "2026-04-19T16:07:50.000Z",
-    "expiresAt": "2026-04-20T00:07:50.000Z"
+    "issuedAt": "2026-04-19T16:10:12.000Z",
+    "expiresAt": "2026-04-20T00:10:12.000Z"
   }
 }
 
@@ -17,14 +17,14 @@ Viewer login:
 {
   "status": 200,
   "body": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlblVzZSI6ImFwaV9hY2Nlc3MiLCJzdWIiOiJ1c3Jfdmlld2VyIiwibmFtZSI6IlZpZXdlciIsIndvcmtzcGFjZUlkcyI6WyJ3c19vdGhlciJdLCJpYXQiOjE3NzY2MTQ4NzAsImV4cCI6MTc3NjY0MzY3MH0.hEt6ZIw545u2ucscW3UK-WMQYaNpQkircZEEjdohRUU",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlblVzZSI6ImFwaV9hY2Nlc3MiLCJzdWIiOiJ1c3Jfdmlld2VyIiwibmFtZSI6IlZpZXdlciIsIndvcmtzcGFjZUlkcyI6WyJ3c19vdGhlciJdLCJpYXQiOjE3NzY2MTUwMTIsImV4cCI6MTc3NjY0MzgxMn0.b0kVTde-pIxaUAf0q1pYV6Jt2JgWZLCSt0xA6WURRDo",
     "userId": "usr_viewer",
     "displayName": "Viewer",
     "workspaceIds": [
       "ws_other"
     ],
-    "issuedAt": "2026-04-19T16:07:50.000Z",
-    "expiresAt": "2026-04-20T00:07:50.000Z"
+    "issuedAt": "2026-04-19T16:10:12.000Z",
+    "expiresAt": "2026-04-20T00:10:12.000Z"
   }
 }
 
@@ -32,12 +32,12 @@ Create document:
 {
   "status": 201,
   "body": {
-    "documentId": "doc_93492226",
+    "documentId": "doc_8cc294e4",
     "workspaceId": "ws_123",
     "title": "Forbidden edit proof",
     "ownerRole": "owner",
     "currentVersionId": "ver_001",
-    "createdAt": "2026-04-19T16:07:50.964Z"
+    "createdAt": "2026-04-19T16:10:12.260Z"
   }
 }
 
@@ -45,9 +45,9 @@ Share viewer by email:
 {
   "status": 201,
   "body": {
-    "documentId": "doc_93492226",
+    "documentId": "doc_8cc294e4",
     "permission": {
-      "shareId": "shr_f9bcd3b1",
+      "shareId": "shr_3944e9c9",
       "source": "share",
       "userId": "usr_viewer",
       "email": "viewer@demo.local",
@@ -61,12 +61,12 @@ Viewer load document:
 {
   "status": 200,
   "body": {
-    "documentId": "doc_93492226",
+    "documentId": "doc_8cc294e4",
     "workspaceId": "ws_123",
     "title": "Forbidden edit proof",
     "ownerRole": "owner",
     "currentVersionId": "ver_001",
-    "createdAt": "2026-04-19T16:07:50.964Z",
+    "createdAt": "2026-04-19T16:10:12.260Z",
     "content": {
       "type": "doc",
       "content": [
@@ -76,7 +76,7 @@ Viewer load document:
         }
       ]
     },
-    "updatedAt": "2026-04-19T16:07:50.964Z"
+    "updatedAt": "2026-04-19T16:10:12.260Z"
   }
 }
 
@@ -86,9 +86,9 @@ Viewer PATCH document (expected 403):
   "body": {
     "error": {
       "code": "AUTHZ_FORBIDDEN",
-      "message": "User 'usr_viewer' cannot edit document 'doc_93492226'.",
+      "message": "User 'usr_viewer' cannot edit document 'doc_8cc294e4'.",
       "retryable": false,
-      "requestId": "req_41a080bc-bc5"
+      "requestId": "req_d790c4ad-538"
     }
   }
 }
