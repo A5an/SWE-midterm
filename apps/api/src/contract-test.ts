@@ -3,15 +3,24 @@ import type { AddressInfo } from "node:net";
 import { createConnection } from "node:net";
 import {
   isApiErrorEnvelope,
-  isDemoLoginResponse,
   isCollaborationSessionResponse,
+  isDemoLoginResponse,
   isDocumentDetailResponse,
-  isDocumentMetadataResponse
+  isDocumentMetadataResponse,
+  isDocumentPermissionsResponse,
+  isDocumentShareResponse
 } from "@swe-midterm/contracts";
 import { createApiServer } from "./server.ts";
 
 interface MessageBucket {
   messages: Array<Record<string, unknown>>;
+}
+
+interface AuthSession {
+  accessToken: string;
+  displayName: string;
+  userId: string;
+  workspaceIds: string[];
 }
 
 const server = createApiServer();
@@ -138,18 +147,72 @@ const rawInvalidHandshake = async (port: number): Promise<string> =>
     socket.on("error", reject);
   });
 
+const authHeaders = (accessToken?: string): Record<string, string> => {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return headers;
+};
+
+const loginDemoUser = async (baseUrl: string, userId: string, password: string): Promise<AuthSession> => {
+  const response = await fetch(`${baseUrl}/v1/auth/demo-login`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ userId, password })
+  });
+
+  assert.equal(response.status, 200, "Demo login must return 200 for valid credentials.");
+  const body = (await response.json()) as unknown;
+  assert.equal(isDemoLoginResponse(body), true, "Demo login must match the documented auth contract.");
+
+  return body as AuthSession;
+};
+
 const main = async (): Promise<void> => {
   const baseUrl = await listen();
   const address = server.address() as AddressInfo;
 
-  const createResponse = await fetch(`${baseUrl}/v1/documents`, {
+  const unauthenticatedCreateResponse = await fetch(`${baseUrl}/v1/documents`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: authHeaders(),
     body: JSON.stringify({
       workspaceId: "ws_123",
-      title: "Realtime collaboration baseline",
+      title: "Auth required",
+      templateId: null,
+      initialContent: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            text: "Should fail without auth."
+          }
+        ]
+      }
+    })
+  });
+  assert.equal(unauthenticatedCreateResponse.status, 401, "Document create must require API auth.");
+  const unauthenticatedCreateBody = (await unauthenticatedCreateResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(unauthenticatedCreateBody), true);
+  assert.equal(
+    (unauthenticatedCreateBody as { error: { code: string } }).error.code,
+    "AUTH_REQUIRED"
+  );
+
+  const owner = await loginDemoUser(baseUrl, "usr_assanali", "demo-assanali");
+  const editor = await loginDemoUser(baseUrl, "usr_editor", "demo-editor");
+  const viewer = await loginDemoUser(baseUrl, "usr_viewer", "demo-viewer");
+
+  const createResponse = await fetch(`${baseUrl}/v1/documents`, {
+    method: "POST",
+    headers: authHeaders(owner.accessToken),
+    body: JSON.stringify({
+      workspaceId: "ws_123",
+      title: "RBAC sharing baseline",
       templateId: null,
       initialContent: {
         type: "doc",
@@ -163,7 +226,7 @@ const main = async (): Promise<void> => {
     })
   });
 
-  assert.equal(createResponse.status, 201, "Create endpoint must return 201.");
+  assert.equal(createResponse.status, 201, "Create endpoint must return 201 for authorized owners.");
   const createdBody = (await createResponse.json()) as unknown;
   assert.equal(
     isDocumentMetadataResponse(createdBody),
@@ -172,13 +235,25 @@ const main = async (): Promise<void> => {
   );
 
   const created = createdBody as { documentId: string };
-  const loadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`);
-  assert.equal(loadResponse.status, 200, "Load endpoint must return 200 for existing document.");
-  const loadBody = (await loadResponse.json()) as unknown;
+
+  const unauthenticatedLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`);
+  assert.equal(unauthenticatedLoadResponse.status, 401, "Document load must require API auth.");
+  const unauthenticatedLoadBody = (await unauthenticatedLoadResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(unauthenticatedLoadBody), true);
   assert.equal(
-    isDocumentDetailResponse(loadBody),
+    (unauthenticatedLoadBody as { error: { code: string } }).error.code,
+    "AUTH_REQUIRED"
+  );
+
+  const ownerLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    headers: authHeaders(owner.accessToken)
+  });
+  assert.equal(ownerLoadResponse.status, 200, "Owner must load the document.");
+  const ownerLoadBody = (await ownerLoadResponse.json()) as unknown;
+  assert.equal(
+    isDocumentDetailResponse(ownerLoadBody),
     true,
-    "Load response must include metadata + content contract."
+    "Document detail response must match the shared contract."
   );
 
   const invalidHandshakeResponse = await rawInvalidHandshake(address.port);
@@ -186,67 +261,143 @@ const main = async (): Promise<void> => {
   assert.match(invalidHandshakeResponse, /AUTH_INVALID_TOKEN/u);
   console.log("ws-auth: invalid token rejected with HTTP 401");
 
-  const loginDemoUser = async (userId: string, password: string): Promise<{
-    accessToken: string;
-    displayName: string;
-    userId: string;
-    workspaceIds: string[];
-  }> => {
-    const response = await fetch(`${baseUrl}/v1/auth/demo-login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ userId, password })
-    });
-
-    assert.equal(response.status, 200, "Demo login must return 200 for valid credentials.");
-    const body = (await response.json()) as unknown;
-    assert.equal(isDemoLoginResponse(body), true, "Demo login must match the documented auth contract.");
-
-    return body as {
-      accessToken: string;
-      displayName: string;
-      userId: string;
-      workspaceIds: string[];
-    };
-  };
-
-  const unauthenticatedSessionResponse = await fetch(
-    `${baseUrl}/v1/documents/${created.documentId}/sessions`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({})
-    }
-  );
-  assert.equal(unauthenticatedSessionResponse.status, 401, "Session bootstrap must require API auth.");
-  const unauthenticatedSessionBody = (await unauthenticatedSessionResponse.json()) as unknown;
-  assert.equal(isApiErrorEnvelope(unauthenticatedSessionBody), true);
-  assert.equal(
-    (unauthenticatedSessionBody as { error: { code: string } }).error.code,
-    "AUTH_REQUIRED"
-  );
-
-  const outsider = await loginDemoUser("usr_viewer", "demo-viewer");
-  const forbiddenSessionResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/sessions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${outsider.accessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({})
+  const unsharedEditorLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    headers: authHeaders(editor.accessToken)
   });
-  assert.equal(forbiddenSessionResponse.status, 403, "Session bootstrap must enforce document access.");
-  const forbiddenSessionBody = (await forbiddenSessionResponse.json()) as unknown;
-  assert.equal(isApiErrorEnvelope(forbiddenSessionBody), true);
+  assert.equal(unsharedEditorLoadResponse.status, 403, "Unshared external users must be denied before sharing.");
+  const unsharedEditorLoadBody = (await unsharedEditorLoadResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(unsharedEditorLoadBody), true);
   assert.equal(
-    (forbiddenSessionBody as { error: { code: string } }).error.code,
-    "ACCESS_FORBIDDEN"
+    (unsharedEditorLoadBody as { error: { code: string } }).error.code,
+    "AUTHZ_FORBIDDEN"
   );
-  console.log("authz: session bootstrap requires API auth and workspace access");
+  console.log("share-gate: external user denied before explicit share");
+
+  const editorShareResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/shares`, {
+    method: "POST",
+    headers: authHeaders(owner.accessToken),
+    body: JSON.stringify({
+      principalType: "user",
+      principalId: "usr_editor",
+      permissionLevel: "editor"
+    })
+  });
+  assert.equal(editorShareResponse.status, 201, "Owner must be able to share by username.");
+  const editorShareBody = (await editorShareResponse.json()) as unknown;
+  assert.equal(isDocumentShareResponse(editorShareBody), true);
+
+  const viewerShareResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/shares`, {
+    method: "POST",
+    headers: authHeaders(owner.accessToken),
+    body: JSON.stringify({
+      principalType: "user",
+      principalId: "viewer@demo.local",
+      permissionLevel: "viewer"
+    })
+  });
+  assert.equal(viewerShareResponse.status, 201, "Owner must be able to share by email.");
+  const viewerShareBody = (await viewerShareResponse.json()) as unknown;
+  assert.equal(isDocumentShareResponse(viewerShareBody), true);
+
+  const permissionsResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/permissions`, {
+    headers: authHeaders(owner.accessToken)
+  });
+  assert.equal(permissionsResponse.status, 200, "Owner must be able to inspect the ACL.");
+  const permissionsBody = (await permissionsResponse.json()) as unknown;
+  assert.equal(isDocumentPermissionsResponse(permissionsBody), true);
+  const permissions = permissionsBody as {
+    permissions: Array<{ permissionLevel: string; source: string; userId: string }>;
+  };
+  assert.deepEqual(
+    permissions.permissions.map((permission) => [
+      permission.userId,
+      permission.permissionLevel,
+      permission.source
+    ]),
+    [
+      ["usr_assanali", "owner", "owner"],
+      ["usr_alaa", "editor", "workspace"],
+      ["usr_dachi", "editor", "workspace"],
+      ["usr_editor", "editor", "share"],
+      ["usr_viewer", "viewer", "share"]
+    ]
+  );
+  console.log("rbac: role matrix includes owner, workspace editors, shared editor, and shared viewer");
+
+  const editorCannotReshareResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/shares`, {
+    method: "POST",
+    headers: authHeaders(editor.accessToken),
+    body: JSON.stringify({
+      principalType: "user",
+      principalId: "usr_dachi",
+      permissionLevel: "viewer"
+    })
+  });
+  assert.equal(editorCannotReshareResponse.status, 403, "Editors must not manage sharing.");
+  const editorCannotReshareBody = (await editorCannotReshareResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(editorCannotReshareBody), true);
+  assert.equal(
+    (editorCannotReshareBody as { error: { code: string } }).error.code,
+    "AUTHZ_FORBIDDEN"
+  );
+
+  const editorLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    headers: authHeaders(editor.accessToken)
+  });
+  assert.equal(editorLoadResponse.status, 200, "Shared editor must load the document.");
+
+  const viewerLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    headers: authHeaders(viewer.accessToken)
+  });
+  assert.equal(viewerLoadResponse.status, 200, "Shared viewer must load the document read-only.");
+
+  const viewerPatchResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    method: "PATCH",
+    headers: authHeaders(viewer.accessToken),
+    body: JSON.stringify({
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            text: "Viewer should not be able to overwrite this document."
+          }
+        ]
+      }
+    })
+  });
+  assert.equal(viewerPatchResponse.status, 403, "Viewer direct API edit attempts must be denied.");
+  const viewerPatchBody = (await viewerPatchResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(viewerPatchBody), true);
+  assert.equal(
+    (viewerPatchBody as { error: { code: string } }).error.code,
+    "AUTHZ_FORBIDDEN"
+  );
+  console.log("rbac: viewer direct API edit rejected with 403 AUTHZ_FORBIDDEN");
+
+  const editorPatchResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    method: "PATCH",
+    headers: authHeaders(editor.accessToken),
+    body: JSON.stringify({
+      title: "RBAC sharing baseline (edited)",
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            text: "Editor update applied through the direct document API."
+          }
+        ]
+      }
+    })
+  });
+  assert.equal(editorPatchResponse.status, 200, "Editors must be allowed to update document content.");
+  const editorPatchBody = (await editorPatchResponse.json()) as unknown;
+  assert.equal(isDocumentDetailResponse(editorPatchBody), true);
+  assert.equal(
+    (editorPatchBody as { content: { content: Array<{ text: string }> } }).content.content[0]?.text,
+    "Editor update applied through the direct document API."
+  );
 
   const createSession = async (accessToken: string): Promise<{
     documentId: string;
@@ -256,14 +407,11 @@ const main = async (): Promise<void> => {
   }> => {
     const response = await fetch(`${baseUrl}/v1/documents/${created.documentId}/sessions`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json"
-      },
+      headers: authHeaders(accessToken),
       body: JSON.stringify({})
     });
 
-    assert.equal(response.status, 201, "Session bootstrap must return 201.");
+    assert.equal(response.status, 201, "Session bootstrap must return 201 for editable users.");
     const body = (await response.json()) as unknown;
     assert.equal(
       isCollaborationSessionResponse(body),
@@ -279,68 +427,85 @@ const main = async (): Promise<void> => {
     };
   };
 
-  const authA = await loginDemoUser("usr_assanali", "demo-assanali");
-  const authB = await loginDemoUser("usr_alaa", "demo-alaa");
-  const sessionA = await createSession(authA.accessToken);
-  const sessionB = await createSession(authB.accessToken);
+  const viewerSessionResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/sessions`, {
+    method: "POST",
+    headers: authHeaders(viewer.accessToken),
+    body: JSON.stringify({})
+  });
+  assert.equal(viewerSessionResponse.status, 403, "Viewer must be blocked from mutable collaboration sessions.");
+  const viewerSessionBody = (await viewerSessionResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(viewerSessionBody), true);
+  assert.equal(
+    (viewerSessionBody as { error: { code: string } }).error.code,
+    "AUTHZ_FORBIDDEN"
+  );
 
-  const userA = await openSocket(`${sessionA.wsUrl}?token=${encodeURIComponent(sessionA.sessionToken)}`);
-  const bootstrapA = await waitForMessage<{
+  const ownerSession = await createSession(owner.accessToken);
+  const editorSession = await createSession(editor.accessToken);
+
+  const ownerSocket = await openSocket(
+    `${ownerSession.wsUrl}?token=${encodeURIComponent(ownerSession.sessionToken)}`
+  );
+  const bootstrapOwner = await waitForMessage<{
     serverRevision: number;
     text: string;
     type: string;
-  }>(userA.bucket, (message) => message.type === "server.bootstrap");
-  assert.equal(bootstrapA.serverRevision, 0);
-  assert.equal(bootstrapA.text, "Initial content from PoC.");
+  }>(ownerSocket.bucket, (message) => message.type === "server.bootstrap");
+  assert.equal(bootstrapOwner.serverRevision, 1);
+  assert.equal(bootstrapOwner.text, "Editor update applied through the direct document API.");
 
-  const userB = await openSocket(`${sessionB.wsUrl}?token=${encodeURIComponent(sessionB.sessionToken)}`);
-  await waitForMessage(userB.bucket, (message) => message.type === "server.bootstrap");
+  const editorSocket = await openSocket(
+    `${editorSession.wsUrl}?token=${encodeURIComponent(editorSession.sessionToken)}`
+  );
+  await waitForMessage(editorSocket.bucket, (message) => message.type === "server.bootstrap");
 
-  const presenceForA = await waitForMessage<{ participants: Array<{ userId: string }> }>(
-    userA.bucket,
+  const presenceForOwner = await waitForMessage<{ participants: Array<{ userId: string }> }>(
+    ownerSocket.bucket,
     (message) =>
       message.type === "server.presence" &&
       Array.isArray(message.participants) &&
       message.participants.length === 2
   );
-  const presenceForB = await waitForMessage<{ participants: Array<{ userId: string }> }>(
-    userB.bucket,
+  const presenceForEditor = await waitForMessage<{ participants: Array<{ userId: string }> }>(
+    editorSocket.bucket,
     (message) =>
       message.type === "server.presence" &&
       Array.isArray(message.participants) &&
       message.participants.length === 2
   );
   assert.deepEqual(
-    presenceForA.participants.map((participant) => participant.userId).sort(),
-    ["usr_alaa", "usr_assanali"]
+    presenceForOwner.participants.map((participant) => participant.userId).sort(),
+    ["usr_assanali", "usr_editor"]
   );
   assert.deepEqual(
-    presenceForB.participants.map((participant) => participant.userId).sort(),
-    ["usr_alaa", "usr_assanali"]
+    presenceForEditor.participants.map((participant) => participant.userId).sort(),
+    ["usr_assanali", "usr_editor"]
   );
-  console.log("presence: both websocket clients see the same online user list");
+  console.log("presence: owner and shared editor see the same online user list");
 
-  userB.ws.close();
+  editorSocket.ws.close();
   const afterDisconnectPresence = await waitForMessage<{ participants: Array<{ userId: string }> }>(
-    userA.bucket,
+    ownerSocket.bucket,
     (message) =>
       message.type === "server.presence" &&
       Array.isArray(message.participants) &&
       message.participants.length === 1
   );
   assert.deepEqual(afterDisconnectPresence.participants.map((participant) => participant.userId), ["usr_assanali"]);
-  console.log("presence: disconnect removed the offline user from the room");
+  console.log("presence: disconnect removed the offline shared editor from the room");
 
-  const reconnectedB = await openSocket(`${sessionB.wsUrl}?token=${encodeURIComponent(sessionB.sessionToken)}`);
+  const reconnectedEditor = await openSocket(
+    `${editorSession.wsUrl}?token=${encodeURIComponent(editorSession.sessionToken)}`
+  );
   const reconnectBootstrap = await waitForMessage<{
     serverRevision: number;
     text: string;
     type: string;
-  }>(reconnectedB.bucket, (message) => message.type === "server.bootstrap");
-  assert.equal(reconnectBootstrap.text, "Initial content from PoC.");
+  }>(reconnectedEditor.bucket, (message) => message.type === "server.bootstrap");
+  assert.equal(reconnectBootstrap.text, "Editor update applied through the direct document API.");
 
   const afterReconnectPresence = await waitForMessage<{ participants: Array<{ userId: string }> }>(
-    userA.bucket,
+    ownerSocket.bucket,
     (message) =>
       message.type === "server.presence" &&
       Array.isArray(message.participants) &&
@@ -348,19 +513,19 @@ const main = async (): Promise<void> => {
   );
   assert.deepEqual(
     afterReconnectPresence.participants.map((participant) => participant.userId).sort(),
-    ["usr_alaa", "usr_assanali"]
+    ["usr_assanali", "usr_editor"]
   );
 
   const offlineReplayMessage = {
     type: "client.update",
-    sessionId: sessionB.sessionId,
+    sessionId: editorSession.sessionId,
     clientSeq: 1,
     mutationId: "mut-offline-replay",
     baseRevision: reconnectBootstrap.serverRevision,
-    text: "Offline edit from reconnecting collaborator."
+    text: "Offline edit from reconnecting shared editor."
   };
 
-  reconnectedB.ws.send(JSON.stringify(offlineReplayMessage));
+  reconnectedEditor.ws.send(JSON.stringify(offlineReplayMessage));
 
   const firstAck = await waitForMessage<{
     mutationId: string;
@@ -368,36 +533,36 @@ const main = async (): Promise<void> => {
     text: string;
     type: string;
   }>(
-    reconnectedB.bucket,
+    reconnectedEditor.bucket,
     (message) =>
       message.type === "server.ack" &&
       message.mutationId === offlineReplayMessage.mutationId
   );
-  assert.equal(firstAck.serverRevision, 1);
+  assert.equal(firstAck.serverRevision, 2);
   assert.equal(firstAck.text, offlineReplayMessage.text);
 
-  const remoteUpdateForA = await waitForMessage<{
+  const remoteUpdateForOwner = await waitForMessage<{
     mutationId: string;
     serverRevision: number;
     text: string;
     type: string;
   }>(
-    userA.bucket,
+    ownerSocket.bucket,
     (message) =>
       message.type === "server.update" &&
       message.mutationId === offlineReplayMessage.mutationId
   );
-  assert.equal(remoteUpdateForA.serverRevision, 1);
-  assert.equal(remoteUpdateForA.text, offlineReplayMessage.text);
+  assert.equal(remoteUpdateForOwner.serverRevision, 2);
+  assert.equal(remoteUpdateForOwner.text, offlineReplayMessage.text);
 
-  reconnectedB.ws.send(JSON.stringify(offlineReplayMessage));
+  reconnectedEditor.ws.send(JSON.stringify(offlineReplayMessage));
 
   const duplicateAck = await waitForMessage<{
     mutationId: string;
     serverRevision: number;
     type: string;
   }>(
-    reconnectedB.bucket,
+    reconnectedEditor.bucket,
     (message) =>
       message.type === "server.ack" &&
       message.mutationId === offlineReplayMessage.mutationId
@@ -405,14 +570,16 @@ const main = async (): Promise<void> => {
   assert.equal(duplicateAck.serverRevision, firstAck.serverRevision);
 
   const duplicateBroadcast = await waitForOptionalMessage(
-    userA.bucket,
+    ownerSocket.bucket,
     (message) =>
       message.type === "server.update" &&
       message.mutationId === offlineReplayMessage.mutationId
   );
   assert.equal(duplicateBroadcast, null, "Duplicate replay must not rebroadcast the same mutation.");
 
-  const persistedLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`);
+  const persistedLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    headers: authHeaders(owner.accessToken)
+  });
   assert.equal(persistedLoadResponse.status, 200);
   const persistedBody = (await persistedLoadResponse.json()) as unknown;
   assert.equal(isDocumentDetailResponse(persistedBody), true);
@@ -422,8 +589,8 @@ const main = async (): Promise<void> => {
   );
   console.log("reconnect: resync applied once and the latest shared text persisted");
 
-  reconnectedB.ws.close();
-  userA.ws.close();
+  reconnectedEditor.ws.close();
+  ownerSocket.ws.close();
 
   console.log("API + websocket contract tests passed.");
 };
