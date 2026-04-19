@@ -191,6 +191,47 @@ describe("mountApp", () => {
         );
       }
 
+      if (url.endsWith("/v1/documents/doc_123/permissions")) {
+        return new Response(
+          JSON.stringify({
+            documentId: "doc_123",
+            permissions: [
+              {
+                shareId: null,
+                source: "owner",
+                userId: "usr_alaa",
+                email: "alaa@example.com",
+                displayName: "Alaa",
+                permissionLevel: "owner"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/documents/doc_123/versions")) {
+        return new Response(
+          JSON.stringify({
+            documentId: "doc_123",
+            currentVersionId: "ver_001",
+            versions: [
+              {
+                versionId: "ver_001",
+                versionNumber: 1,
+                createdAt: "2026-04-19T12:00:00.000Z",
+                createdByUserId: "usr_alaa",
+                basedOnVersionId: null,
+                isRevert: false,
+                changeSummary: "Initial version",
+                title: "Team Plan"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
       if (url.endsWith("/v1/documents/doc_123/ai/jobs")) {
         return new Response(
           JSON.stringify({

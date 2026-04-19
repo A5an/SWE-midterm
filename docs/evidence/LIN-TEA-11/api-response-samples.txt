@@ -1,0 +1,185 @@
+Owner login:
+{
+  "status": 200,
+  "body": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlblVzZSI6ImFwaV9hY2Nlc3MiLCJzdWIiOiJ1c3JfYXNzYW5hbGkiLCJuYW1lIjoiQXNzYW5hbGkiLCJ3b3Jrc3BhY2VJZHMiOlsid3NfMTIzIl0sImlhdCI6MTc3NjYyMDAyNCwiZXhwIjoxNzc2NjQ4ODI0fQ.p4-EDVLDNXbYLaSiSRqyXmpMCrVpOvYBlfIpDsFfy18",
+    "userId": "usr_assanali",
+    "displayName": "Assanali",
+    "workspaceIds": [
+      "ws_123"
+    ],
+    "issuedAt": "2026-04-19T17:33:44.000Z",
+    "expiresAt": "2026-04-20T01:33:44.000Z"
+  }
+}
+Create document:
+{
+  "status": 201,
+  "body": {
+    "documentId": "doc_54a31dcc",
+    "workspaceId": "ws_123",
+    "title": "Version API proof",
+    "ownerRole": "owner",
+    "currentVersionId": "ver_001",
+    "createdAt": "2026-04-19T17:33:44.567Z"
+  }
+}
+
+List versions after create:
+{
+  "status": 200,
+  "body": {
+    "documentId": "doc_54a31dcc",
+    "currentVersionId": "ver_001",
+    "versions": [
+      {
+        "versionId": "ver_001",
+        "versionNumber": 1,
+        "createdAt": "2026-04-19T17:33:44.567Z",
+        "createdByUserId": "usr_assanali",
+        "basedOnVersionId": null,
+        "isRevert": false,
+        "changeSummary": "Initial version",
+        "title": "Version API proof"
+      }
+    ]
+  }
+}
+
+Fetch version ver_001:
+{
+  "status": 200,
+  "body": {
+    "versionId": "ver_001",
+    "versionNumber": 1,
+    "createdAt": "2026-04-19T17:33:44.567Z",
+    "createdByUserId": "usr_assanali",
+    "basedOnVersionId": null,
+    "isRevert": false,
+    "changeSummary": "Initial version",
+    "title": "Version API proof",
+    "documentId": "doc_54a31dcc",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "text": "Original version content."
+        }
+      ]
+    }
+  }
+}
+
+Patch document to create ver_002:
+{
+  "status": 200,
+  "body": {
+    "documentId": "doc_54a31dcc",
+    "workspaceId": "ws_123",
+    "title": "Version API proof (edited)",
+    "ownerRole": "owner",
+    "currentVersionId": "ver_002",
+    "createdAt": "2026-04-19T17:33:44.567Z",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "text": "Updated version content."
+        }
+      ]
+    },
+    "updatedAt": "2026-04-19T17:33:44.571Z"
+  }
+}
+
+List versions after patch:
+{
+  "status": 200,
+  "body": {
+    "documentId": "doc_54a31dcc",
+    "currentVersionId": "ver_002",
+    "versions": [
+      {
+        "versionId": "ver_001",
+        "versionNumber": 1,
+        "createdAt": "2026-04-19T17:33:44.567Z",
+        "createdByUserId": "usr_assanali",
+        "basedOnVersionId": null,
+        "isRevert": false,
+        "changeSummary": "Initial version",
+        "title": "Version API proof"
+      },
+      {
+        "versionId": "ver_002",
+        "versionNumber": 2,
+        "createdAt": "2026-04-19T17:33:44.571Z",
+        "createdByUserId": "usr_assanali",
+        "basedOnVersionId": null,
+        "isRevert": false,
+        "changeSummary": "Updated title and content",
+        "title": "Version API proof (edited)"
+      }
+    ]
+  }
+}
+
+Restore ver_001 as new head:
+{
+  "status": 202,
+  "body": {
+    "documentId": "doc_54a31dcc",
+    "restoredFromVersionId": "ver_001",
+    "currentVersionId": "ver_003",
+    "updatedAt": "2026-04-19T17:33:44.572Z"
+  }
+}
+
+Load document after restore:
+{
+  "status": 200,
+  "body": {
+    "documentId": "doc_54a31dcc",
+    "workspaceId": "ws_123",
+    "title": "Version API proof",
+    "ownerRole": "owner",
+    "currentVersionId": "ver_003",
+    "createdAt": "2026-04-19T17:33:44.567Z",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "text": "Original version content."
+        }
+      ]
+    },
+    "updatedAt": "2026-04-19T17:33:44.572Z"
+  }
+}
+
+Fetch version ver_003:
+{
+  "status": 200,
+  "body": {
+    "versionId": "ver_003",
+    "versionNumber": 3,
+    "createdAt": "2026-04-19T17:33:44.572Z",
+    "createdByUserId": "usr_assanali",
+    "basedOnVersionId": "ver_001",
+    "isRevert": true,
+    "changeSummary": "Restored from version ver_001",
+    "title": "Version API proof",
+    "documentId": "doc_54a31dcc",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "text": "Original version content."
+        }
+      ]
+    }
+  }
+}

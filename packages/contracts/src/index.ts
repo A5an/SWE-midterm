@@ -54,6 +54,35 @@ export interface DocumentListResponse {
   documents: DocumentListItem[];
 }
 
+export interface DocumentVersionSummary {
+  versionId: string;
+  versionNumber: number;
+  createdAt: string;
+  createdByUserId: string;
+  basedOnVersionId: string | null;
+  isRevert: boolean;
+  changeSummary: string;
+  title: string;
+}
+
+export interface DocumentVersionsResponse {
+  documentId: string;
+  currentVersionId: string;
+  versions: DocumentVersionSummary[];
+}
+
+export interface DocumentVersionResponse extends DocumentVersionSummary {
+  documentId: string;
+  content: DocumentContent;
+}
+
+export interface DocumentRestoreResponse {
+  documentId: string;
+  restoredFromVersionId: string;
+  currentVersionId: string;
+  updatedAt: string;
+}
+
 export interface UpdateDocumentRequest {
   title?: string;
   content: DocumentContent;
@@ -288,6 +317,15 @@ export interface CollaborationServerUpdateMessage {
   text: string;
 }
 
+export interface CollaborationServerReloadRequiredMessage {
+  type: "server.reload_required";
+  reason: "revert_created_new_head";
+  documentId: string;
+  newVersionId: string;
+  serverRevision: number;
+  text: string;
+}
+
 export interface CollaborationServerErrorMessage {
   type: "server.error";
   code: string;
@@ -299,6 +337,7 @@ export type CollaborationServerMessage =
   | CollaborationServerPresenceMessage
   | CollaborationServerAckMessage
   | CollaborationServerUpdateMessage
+  | CollaborationServerReloadRequiredMessage
   | CollaborationServerErrorMessage;
 
 type ParseResult<T> =
@@ -677,6 +716,58 @@ export const isDocumentListResponse = (value: unknown): value is DocumentListRes
   }
 
   return Array.isArray(value.documents) && value.documents.every((entry) => isDocumentListItem(entry));
+};
+
+export const isDocumentVersionSummary = (value: unknown): value is DocumentVersionSummary => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.versionId) &&
+    Number.isInteger(value.versionNumber) &&
+    (value.versionNumber as number) >= 1 &&
+    isIsoDateString(value.createdAt) &&
+    isNonEmptyString(value.createdByUserId) &&
+    (value.basedOnVersionId === null || isNonEmptyString(value.basedOnVersionId)) &&
+    typeof value.isRevert === "boolean" &&
+    isNonEmptyString(value.changeSummary) &&
+    isNonEmptyString(value.title)
+  );
+};
+
+export const isDocumentVersionsResponse = (value: unknown): value is DocumentVersionsResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.documentId) &&
+    isNonEmptyString(value.currentVersionId) &&
+    Array.isArray(value.versions) &&
+    value.versions.every((version) => isDocumentVersionSummary(version))
+  );
+};
+
+export const isDocumentVersionResponse = (value: unknown): value is DocumentVersionResponse => {
+  if (!isRecord(value) || !isDocumentVersionSummary(value)) {
+    return false;
+  }
+
+  return isNonEmptyString(value.documentId) && isDocumentContent(value.content);
+};
+
+export const isDocumentRestoreResponse = (value: unknown): value is DocumentRestoreResponse => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonEmptyString(value.documentId) &&
+    isNonEmptyString(value.restoredFromVersionId) &&
+    isNonEmptyString(value.currentVersionId) &&
+    isIsoDateString(value.updatedAt)
+  );
 };
 
 export const isDocumentPermissionEntry = (value: unknown): value is DocumentPermissionEntry => {

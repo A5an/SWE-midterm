@@ -10,12 +10,19 @@ import {
   isDocumentDetailResponse,
   isDocumentListResponse,
   isDocumentMetadataResponse,
+  isDocumentPermissionsResponse,
+  isDocumentRestoreResponse,
+  isDocumentShareResponse,
+  isDocumentVersionsResponse,
   type AiHistoryRecord,
   type AiJobStatus,
   type CollaborationParticipant,
   type CreateDocumentRequest,
   type DocumentDetailResponse,
-  type DocumentListItem
+  type DocumentListItem,
+  type DocumentPermissionEntry,
+  type DocumentVersionSummary,
+  type SharingRole
 } from "@swe-midterm/contracts";
 import {
   buildAiRequestContext,
@@ -24,8 +31,30 @@ import {
   type EditorSelectionRange
 } from "./ai.ts";
 import {
+  buildAuthRouteHash,
+  clearPersistedAuthSession,
+  fetchCurrentUserProfile,
+  isApiErrorEnvelope as isFastApiErrorEnvelope,
+  loginAuthUser,
+  parseAuthRoute,
+  persistAuthSession,
+  refreshAuthSession,
+  registerAuthUser,
+  restorePersistedAuthSession,
+  type AuthRoute,
+  type AuthUserProfile,
+  type PersistedAuthSession
+} from "./auth.ts";
+import {
+  describeRoleCapabilities,
+  removePermissionEntry,
+  resolveEffectiveDocumentRole,
+  sortVersionsDescending,
+  upsertPermissionEntry,
+  type EffectiveDocumentRole
+} from "./document-ui.ts";
+import {
   contentToEditorHtml,
-  contentToPlainText,
   contentToPreview,
   editorHtmlToContent,
   formatAutosaveLabel,
@@ -165,6 +194,107 @@ export const mountApp = (root: HTMLElement): void => {
         <p class="hint">Default backend URL is http://localhost:4000</p>
       </section>
 
+      <section class="panel">
+        <h2>Auth Baseline</h2>
+        <div class="two-column auth-header-grid">
+          <div class="form-grid">
+            <label class="field-label" for="authApiBase">Auth API Base URL</label>
+            <input id="authApiBase" class="text-input" value="${initialApiBase}" />
+            <p class="hint">
+              Point this to the FastAPI backend that exposes <code>/v1/auth/register</code>,
+              <code>/v1/auth/login</code>, <code>/v1/auth/refresh</code>, and the protected
+              <code>/v1/me</code> route.
+            </p>
+          </div>
+          <div class="auth-route-nav">
+            <div class="button-row button-row-left">
+              <button id="authLoginRouteButton" class="button button-secondary" type="button">Login Route</button>
+              <button id="authRegisterRouteButton" class="button button-secondary" type="button">Register Route</button>
+              <button id="authWorkspaceRouteButton" class="button button-primary" type="button">Protected Workspace</button>
+            </div>
+            <p class="hint">
+              This route state is stored in the URL hash so you can refresh directly into the protected workspace.
+            </p>
+          </div>
+        </div>
+
+        <div class="session-bar">
+          <div>
+            <span class="field-label">Route</span>
+            <p id="authRouteState" class="session-value">/login</p>
+          </div>
+          <div>
+            <span class="field-label">JWT Session</span>
+            <p id="authSessionState" class="session-value">Signed out</p>
+          </div>
+          <div>
+            <span class="field-label">Access Expiry</span>
+            <p id="authExpiryState" class="session-value">-</p>
+          </div>
+        </div>
+
+        <p id="authLifecycleState" class="hint">No saved auth session.</p>
+
+        <section id="authLoginPanel" class="auth-route-panel">
+          <h3>Login</h3>
+          <form id="authLoginForm" class="form-grid auth-form-grid">
+            <label class="field-label" for="authLoginEmail">Email</label>
+            <input id="authLoginEmail" class="text-input" type="email" placeholder="user@example.com" required />
+
+            <label class="field-label" for="authLoginPassword">Password</label>
+            <input
+              id="authLoginPassword"
+              class="text-input"
+              type="password"
+              placeholder="At least 8 characters"
+              required
+            />
+
+            <div class="button-row button-row-left">
+              <button type="submit" class="button button-primary">Sign In</button>
+              <button id="authRestoreButton" type="button" class="button button-secondary">Restore Saved Session</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="authRegisterPanel" class="auth-route-panel" hidden>
+          <h3>Register</h3>
+          <form id="authRegisterForm" class="form-grid auth-form-grid">
+            <label class="field-label" for="authRegisterName">Display Name</label>
+            <input id="authRegisterName" class="text-input" placeholder="Assanali" required />
+
+            <label class="field-label" for="authRegisterEmail">Email</label>
+            <input id="authRegisterEmail" class="text-input" type="email" placeholder="user@example.com" required />
+
+            <label class="field-label" for="authRegisterPassword">Password</label>
+            <input
+              id="authRegisterPassword"
+              class="text-input"
+              type="password"
+              placeholder="At least 8 characters"
+              required
+            />
+
+            <div class="button-row button-row-left">
+              <button type="submit" class="button button-primary">Create Account</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="authWorkspacePanel" class="auth-route-panel" hidden>
+          <h3>Protected Workspace</h3>
+          <p class="hint">
+            This route revalidates the persisted JWT session against <code>/v1/me</code>. Refresh the page here to prove
+            session persistence, and use a short backend TTL to demonstrate graceful expiry handling.
+          </p>
+          <div class="button-row button-row-left">
+            <button id="authProtectedFetchButton" class="button button-primary" type="button">Load Protected Profile</button>
+            <button id="authRefreshSessionButton" class="button button-secondary" type="button">Refresh Session</button>
+            <button id="authSignOutButton" class="button button-ghost" type="button">Sign Out</button>
+          </div>
+          <pre id="authProfileOutput" class="output">Protected profile will appear here after sign-in.</pre>
+        </section>
+      </section>
       <section class="panel">
         <h2>Demo Login</h2>
         <div class="three-column">
@@ -342,6 +472,50 @@ export const mountApp = (root: HTMLElement): void => {
       </section>
 
       <section class="panel">
+        <div class="two-column document-admin-grid">
+          <div>
+            <h2>Access & Sharing</h2>
+            <div class="access-summary">
+              <span class="field-label">Effective Access</span>
+              <p id="documentRoleState" class="session-value">Unknown</p>
+              <p id="documentRoleHint" class="hint">Load a document and sign in to inspect document access.</p>
+            </div>
+
+            <form id="shareForm" class="form-grid share-form">
+              <label class="field-label" for="sharePrincipal">User ID or Email</label>
+              <input id="sharePrincipal" class="text-input" placeholder="usr_viewer or viewer@demo.local" />
+
+              <label class="field-label" for="shareRole">Assign Role</label>
+              <select id="shareRole" class="text-input">
+                <option value="editor">editor</option>
+                <option value="viewer">viewer</option>
+              </select>
+
+              <div class="button-row button-row-left">
+                <button id="shareSubmitButton" type="submit" class="button button-primary">Assign or Update Role</button>
+                <button id="refreshPermissionsButton" type="button" class="button button-secondary">Refresh Access List</button>
+              </div>
+            </form>
+
+            <h3>Current Permissions</h3>
+            <ul id="permissionsList" class="history-list">
+              <li class="history-empty">Owner-only sharing controls will appear here after a document is loaded.</li>
+            </ul>
+          </div>
+
+          <div>
+            <h2>Version History</h2>
+            <div class="button-row button-row-left">
+              <button id="refreshVersionsButton" type="button" class="button button-secondary">Refresh Versions</button>
+            </div>
+            <ul id="versionList" class="history-list">
+              <li class="history-empty">Load a document to view version history.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>Status</h2>
         <pre id="status" class="status">Ready.</pre>
       </section>
@@ -354,6 +528,29 @@ export const mountApp = (root: HTMLElement): void => {
   `;
 
   const apiBaseInput = root.querySelector<HTMLInputElement>("#apiBase");
+  const authApiBaseInput = root.querySelector<HTMLInputElement>("#authApiBase");
+  const authLoginRouteButton = root.querySelector<HTMLButtonElement>("#authLoginRouteButton");
+  const authRegisterRouteButton = root.querySelector<HTMLButtonElement>("#authRegisterRouteButton");
+  const authWorkspaceRouteButton = root.querySelector<HTMLButtonElement>("#authWorkspaceRouteButton");
+  const authRouteState = root.querySelector<HTMLElement>("#authRouteState");
+  const authSessionState = root.querySelector<HTMLElement>("#authSessionState");
+  const authExpiryState = root.querySelector<HTMLElement>("#authExpiryState");
+  const authLifecycleState = root.querySelector<HTMLElement>("#authLifecycleState");
+  const authLoginPanel = root.querySelector<HTMLElement>("#authLoginPanel");
+  const authRegisterPanel = root.querySelector<HTMLElement>("#authRegisterPanel");
+  const authWorkspacePanel = root.querySelector<HTMLElement>("#authWorkspacePanel");
+  const authLoginForm = root.querySelector<HTMLFormElement>("#authLoginForm");
+  const authRegisterForm = root.querySelector<HTMLFormElement>("#authRegisterForm");
+  const authLoginEmailInput = root.querySelector<HTMLInputElement>("#authLoginEmail");
+  const authLoginPasswordInput = root.querySelector<HTMLInputElement>("#authLoginPassword");
+  const authRegisterNameInput = root.querySelector<HTMLInputElement>("#authRegisterName");
+  const authRegisterEmailInput = root.querySelector<HTMLInputElement>("#authRegisterEmail");
+  const authRegisterPasswordInput = root.querySelector<HTMLInputElement>("#authRegisterPassword");
+  const authRestoreButton = root.querySelector<HTMLButtonElement>("#authRestoreButton");
+  const authProtectedFetchButton = root.querySelector<HTMLButtonElement>("#authProtectedFetchButton");
+  const authRefreshSessionButton = root.querySelector<HTMLButtonElement>("#authRefreshSessionButton");
+  const authSignOutButton = root.querySelector<HTMLButtonElement>("#authSignOutButton");
+  const authProfileOutput = root.querySelector<HTMLElement>("#authProfileOutput");
   const createForm = root.querySelector<HTMLFormElement>("#createForm");
   const workspaceIdInput = root.querySelector<HTMLInputElement>("#workspaceId");
   const titleInput = root.querySelector<HTMLInputElement>("#title");
@@ -396,11 +593,44 @@ export const mountApp = (root: HTMLElement): void => {
   const aiOriginal = root.querySelector<HTMLTextAreaElement>("#aiOriginal");
   const aiSuggestion = root.querySelector<HTMLTextAreaElement>("#aiSuggestion");
   const aiHistoryList = root.querySelector<HTMLUListElement>("#aiHistoryList");
+  const documentRoleState = root.querySelector<HTMLElement>("#documentRoleState");
+  const documentRoleHint = root.querySelector<HTMLElement>("#documentRoleHint");
+  const shareForm = root.querySelector<HTMLFormElement>("#shareForm");
+  const sharePrincipalInput = root.querySelector<HTMLInputElement>("#sharePrincipal");
+  const shareRoleSelect = root.querySelector<HTMLSelectElement>("#shareRole");
+  const shareSubmitButton = root.querySelector<HTMLButtonElement>("#shareSubmitButton");
+  const refreshPermissionsButton = root.querySelector<HTMLButtonElement>("#refreshPermissionsButton");
+  const permissionsList = root.querySelector<HTMLUListElement>("#permissionsList");
+  const refreshVersionsButton = root.querySelector<HTMLButtonElement>("#refreshVersionsButton");
+  const versionList = root.querySelector<HTMLUListElement>("#versionList");
   const statusOutput = root.querySelector<HTMLElement>("#status");
   const documentOutput = root.querySelector<HTMLElement>("#documentOutput");
 
   if (
     !apiBaseInput ||
+    !authApiBaseInput ||
+    !authLoginRouteButton ||
+    !authRegisterRouteButton ||
+    !authWorkspaceRouteButton ||
+    !authRouteState ||
+    !authSessionState ||
+    !authExpiryState ||
+    !authLifecycleState ||
+    !authLoginPanel ||
+    !authRegisterPanel ||
+    !authWorkspacePanel ||
+    !authLoginForm ||
+    !authRegisterForm ||
+    !authLoginEmailInput ||
+    !authLoginPasswordInput ||
+    !authRegisterNameInput ||
+    !authRegisterEmailInput ||
+    !authRegisterPasswordInput ||
+    !authRestoreButton ||
+    !authProtectedFetchButton ||
+    !authRefreshSessionButton ||
+    !authSignOutButton ||
+    !authProfileOutput ||
     !createForm ||
     !workspaceIdInput ||
     !titleInput ||
@@ -443,6 +673,16 @@ export const mountApp = (root: HTMLElement): void => {
     !aiOriginal ||
     !aiSuggestion ||
     !aiHistoryList ||
+    !documentRoleState ||
+    !documentRoleHint ||
+    !shareForm ||
+    !sharePrincipalInput ||
+    !shareRoleSelect ||
+    !shareSubmitButton ||
+    !refreshPermissionsButton ||
+    !permissionsList ||
+    !refreshVersionsButton ||
+    !versionList ||
     !statusOutput ||
     !documentOutput
   ) {
@@ -473,6 +713,8 @@ export const mountApp = (root: HTMLElement): void => {
         workspaceIds: string[];
       }
     | null = null;
+  let fastapiSession: PersistedAuthSession | null = null;
+  let fastapiProfile: AuthUserProfile | null = null;
   let pendingMutation: PendingMutation | null = null;
   let sessionInfo:
     | {
@@ -492,6 +734,11 @@ export const mountApp = (root: HTMLElement): void => {
   let lastAiUndo: UndoState | null = null;
   let suppressEditorEvents = false;
   let autosaveState: AutosaveStateSnapshot = { kind: "idle" };
+  let ownerControlsAvailable = false;
+  let editAccess: boolean | null = null;
+  let documentRole: EffectiveDocumentRole = "unknown";
+  let permissions: DocumentPermissionEntry[] = [];
+  let versions: DocumentVersionSummary[] = [];
 
   const toolbarButtons = {
     bold: formatBoldButton,
@@ -507,6 +754,8 @@ export const mountApp = (root: HTMLElement): void => {
   };
 
   const currentApiBase = (): string => apiBaseInput.value.trim().replace(/\/+$/, "");
+  const currentAuthApiBase = (): string => authApiBaseInput.value.trim().replace(/\/+$/, "");
+  const currentAuthRoute = (): AuthRoute => parseAuthRoute(window.location.hash);
 
   const currentAuthHeaders = (includeJson = false): Record<string, string> => {
     const headers: Record<string, string> = {};
@@ -549,6 +798,165 @@ export const mountApp = (root: HTMLElement): void => {
     formatBulletButton.disabled = !editorReady;
     formatOrderedButton.disabled = !editorReady;
     formatCodeButton.disabled = !editorReady;
+  };
+
+  const setAuthLifecycleMessage = (message: string): void => {
+    authLifecycleState.textContent = message;
+  };
+
+  const renderProtectedProfile = (): void => {
+    authProfileOutput.textContent = fastapiProfile
+      ? JSON.stringify(
+          {
+            userId: fastapiProfile.userId,
+            email: fastapiProfile.email,
+            displayName: fastapiProfile.displayName,
+            workspaceRole: fastapiProfile.workspaceRole,
+            createdAt: fastapiProfile.createdAt
+          },
+          null,
+          2
+        )
+      : "Protected profile will appear here after sign-in.";
+  };
+
+  const updateFastapiAuthState = (): void => {
+    const route = currentAuthRoute();
+    authRouteState.textContent =
+      route === "workspace" ? "/workspace (protected)" : route === "register" ? "/register" : "/login";
+    authSessionState.textContent = fastapiSession
+      ? `Signed in as ${fastapiSession.user.displayName}`
+      : "Signed out";
+    authExpiryState.textContent = fastapiSession
+      ? new Date(fastapiSession.tokens.accessTokenExpiresAt).toLocaleString()
+      : "-";
+    authProtectedFetchButton.disabled = fastapiSession === null;
+    authRefreshSessionButton.disabled = fastapiSession === null;
+    authSignOutButton.disabled = fastapiSession === null;
+  };
+
+  const applyFastapiSession = (
+    session: PersistedAuthSession | null,
+    options?: {
+      persist?: boolean;
+    }
+  ): void => {
+    fastapiSession = session;
+    fastapiProfile = session?.user ?? null;
+
+    if (session) {
+      authApiBaseInput.value = session.baseUrl;
+      if (options?.persist !== false) {
+        persistAuthSession(window.localStorage, session);
+      }
+    } else if (options?.persist !== false) {
+      clearPersistedAuthSession(window.localStorage);
+    }
+
+    updateFastapiAuthState();
+    renderProtectedProfile();
+  };
+
+  const navigateAuthRoute = (route: AuthRoute): void => {
+    const nextHash = buildAuthRouteHash(route);
+    if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash;
+      return;
+    }
+    renderAuthRoute();
+  };
+
+  const renderAuthRoute = (): void => {
+    let route = currentAuthRoute();
+
+    if (route === "workspace" && !fastapiSession) {
+      route = "login";
+      if (window.location.hash !== buildAuthRouteHash("login")) {
+        window.location.hash = buildAuthRouteHash("login");
+      }
+      setAuthLifecycleMessage("Protected route blocked: sign in first so /v1/me can be authorized.");
+    }
+
+    authLoginPanel.hidden = route !== "login";
+    authRegisterPanel.hidden = route !== "register";
+    authWorkspacePanel.hidden = route !== "workspace";
+    authLoginRouteButton.disabled = route === "login";
+    authRegisterRouteButton.disabled = route === "register";
+    authWorkspaceRouteButton.disabled = route === "workspace";
+    updateFastapiAuthState();
+  };
+
+  const describeFastapiError = (prefix: string, error: unknown): string => {
+    if (isFastApiErrorEnvelope(error)) {
+      return `${prefix}: ${error.error.code} - ${error.error.message} (requestId: ${error.error.requestId})`;
+    }
+
+    if (error instanceof Error) {
+      return `${prefix}: ${error.message}`;
+    }
+
+    return `${prefix}: unexpected response format.`;
+  };
+
+  const loadProtectedProfile = async (
+    reason = "Protected workspace loaded through /v1/me."
+  ): Promise<void> => {
+    if (!fastapiSession) {
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage("Protected route blocked: sign in first so /v1/me can be authorized.");
+      return;
+    }
+
+    try {
+      const profile = await fetchCurrentUserProfile(fastapiSession);
+      const nextSession = { ...fastapiSession, user: profile };
+      applyFastapiSession(nextSession);
+      setAuthLifecycleMessage(reason);
+      return;
+    } catch (error) {
+      if (
+        !isFastApiErrorEnvelope(error) ||
+        (error.error.code !== "AUTHN_TOKEN_EXPIRED" && error.error.code !== "AUTHN_INVALID_TOKEN")
+      ) {
+        setAuthLifecycleMessage(describeFastapiError("Protected route failed", error));
+        return;
+      }
+    }
+
+    try {
+      const refreshedSession = await refreshAuthSession(fastapiSession);
+      applyFastapiSession(refreshedSession);
+      const profile = await fetchCurrentUserProfile(refreshedSession);
+      applyFastapiSession({
+        ...refreshedSession,
+        user: profile
+      });
+      setAuthLifecycleMessage("Access token expired. Session refreshed and protected route recovered gracefully.");
+    } catch (refreshError) {
+      applyFastapiSession(null);
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage(describeFastapiError("Session expired", refreshError));
+    }
+  };
+
+  const restoreFastapiSession = async (
+    statusPrefix = "Restoring saved auth session..."
+  ): Promise<void> => {
+    setAuthLifecycleMessage(statusPrefix);
+    const result = await restorePersistedAuthSession(window.localStorage, currentAuthApiBase());
+    applyFastapiSession(result.session, {
+      persist: false
+    });
+    setAuthLifecycleMessage(result.message);
+    renderAuthRoute();
+
+    if (result.session && currentAuthRoute() === "workspace") {
+      await loadProtectedProfile(
+        result.recoveredWithRefresh
+          ? "Protected workspace restored after refreshing expired credentials."
+          : "Protected workspace restored from the saved session."
+      );
+    }
   };
 
   const updateRevisionState = (revision: number): void => {
@@ -618,6 +1026,358 @@ export const mountApp = (root: HTMLElement): void => {
       ? `${authSession.displayName} (${authSession.userId})`
       : "No authenticated API identity";
     authWorkspaces.textContent = authSession ? authSession.workspaceIds.join(", ") : "-";
+  };
+
+  const updateDocumentRoleState = (): void => {
+    documentRole = resolveEffectiveDocumentRole(ownerControlsAvailable, editAccess);
+    documentRoleState.textContent =
+      documentRole === "unknown" ? "Unknown" : `${documentRole.charAt(0).toUpperCase()}${documentRole.slice(1)}`;
+    documentRoleHint.textContent = describeRoleCapabilities(documentRole, authSession !== null, currentDocument !== null);
+
+    const canManageShares = currentDocument !== null && authSession !== null && documentRole === "owner";
+    const canInspectDocument = currentDocument !== null && authSession !== null;
+
+    sharePrincipalInput.disabled = !canManageShares;
+    shareRoleSelect.disabled = !canManageShares;
+    shareSubmitButton.disabled = !canManageShares;
+    refreshPermissionsButton.disabled = !canInspectDocument;
+    refreshVersionsButton.disabled = !canInspectDocument;
+
+    if (versions.length > 0) {
+      renderVersions();
+    }
+  };
+
+  const renderPermissions = (): void => {
+    if (!currentDocument) {
+      permissionsList.innerHTML = `<li class="history-empty">Load a document to inspect sharing state.</li>`;
+      return;
+    }
+
+    if (!authSession) {
+      permissionsList.innerHTML = `<li class="history-empty">Sign in with a demo user to inspect document access.</li>`;
+      return;
+    }
+
+    if (!ownerControlsAvailable) {
+      permissionsList.innerHTML = `<li class="history-empty">Only the owner can view and edit the full sharing matrix for this document.</li>`;
+      return;
+    }
+
+    if (permissions.length === 0) {
+      permissionsList.innerHTML = `<li class="history-empty">No document permissions were returned by the API.</li>`;
+      return;
+    }
+
+    permissionsList.innerHTML = permissions
+      .map((permission) => {
+        const canRemoveShare = permission.shareId !== null && permission.source === "share";
+
+        return `
+          <li class="history-item permission-item">
+            <div class="history-row">
+              <strong>${escapeHtml(permission.displayName)}</strong>
+              <span class="history-pill">${escapeHtml(permission.permissionLevel)}</span>
+              <span class="history-pill history-pill-muted">${escapeHtml(permission.source)}</span>
+            </div>
+            <div class="history-meta">
+              <span>${escapeHtml(permission.userId)}</span>
+              <span>${escapeHtml(permission.email)}</span>
+            </div>
+            ${
+              canRemoveShare
+                ? `<div class="button-row button-row-left permission-actions">
+                    <button
+                      type="button"
+                      class="button button-ghost button-inline"
+                      data-action="remove-share"
+                      data-share-id="${escapeHtml(permission.shareId ?? "")}"
+                    >
+                      Remove Explicit Share
+                    </button>
+                  </div>`
+                : `<p class="hint permission-note">${
+                    permission.source === "owner"
+                      ? "Owner access is fixed."
+                      : "Workspace access is inherited until an explicit share overrides it."
+                  }</p>`
+            }
+          </li>
+        `;
+      })
+      .join("");
+  };
+
+  const renderVersions = (): void => {
+    if (!currentDocument) {
+      versionList.innerHTML = `<li class="history-empty">Load a document to view version history.</li>`;
+      return;
+    }
+
+    if (!authSession) {
+      versionList.innerHTML = `<li class="history-empty">Sign in with a demo user to view document versions.</li>`;
+      return;
+    }
+
+    if (versions.length === 0) {
+      versionList.innerHTML = `<li class="history-empty">No versions were returned for this document.</li>`;
+      return;
+    }
+
+    versionList.innerHTML = versions
+      .map((version) => {
+        const isCurrent = currentDocument?.currentVersionId === version.versionId;
+        const canRestore = documentRole === "owner" && !isCurrent;
+
+        return `
+          <li class="history-item version-item">
+            <div class="history-row">
+              <strong>${escapeHtml(version.versionId)}</strong>
+              <span class="history-pill">${escapeHtml(version.title)}</span>
+              ${isCurrent ? `<span class="history-pill history-pill-muted">current</span>` : ""}
+              ${version.isRevert ? `<span class="history-pill history-pill-muted">restore</span>` : ""}
+            </div>
+            <div class="history-meta">
+              <span>#${version.versionNumber}</span>
+              <span>${escapeHtml(new Date(version.createdAt).toLocaleString())}</span>
+              <span>${escapeHtml(version.createdByUserId)}</span>
+            </div>
+            <p class="history-snippet">${escapeHtml(version.changeSummary)}</p>
+            <div class="button-row button-row-left permission-actions">
+              <button
+                type="button"
+                class="button button-secondary button-inline"
+                data-action="restore-version"
+                data-version-id="${escapeHtml(version.versionId)}"
+                ${canRestore ? "" : "disabled"}
+              >
+                ${isCurrent ? "Current Head" : "Restore as New Head"}
+              </button>
+            </div>
+          </li>
+        `;
+      })
+      .join("");
+  };
+
+  const resetDocumentAdminState = (): void => {
+    ownerControlsAvailable = false;
+    editAccess = null;
+    documentRole = "unknown";
+    permissions = [];
+    versions = [];
+    updateDocumentRoleState();
+    renderPermissions();
+    renderVersions();
+  };
+
+  const refreshPermissions = async (): Promise<void> => {
+    if (!currentDocument || !authSession) {
+      permissions = [];
+      ownerControlsAvailable = false;
+      updateDocumentRoleState();
+      renderPermissions();
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/permissions`,
+      {
+        headers: currentAuthHeaders()
+      }
+    );
+    const payload = await readJson(response);
+
+    if (response.ok) {
+      if (!isDocumentPermissionsResponse(payload)) {
+        setStatus("Permissions load failed: backend response does not match expected sharing contract.");
+        ownerControlsAvailable = false;
+        permissions = [];
+        updateDocumentRoleState();
+        renderPermissions();
+        return;
+      }
+
+      ownerControlsAvailable = true;
+      permissions = payload.permissions;
+      updateDocumentRoleState();
+      renderPermissions();
+      return;
+    }
+
+    ownerControlsAvailable = false;
+    permissions = [];
+    updateDocumentRoleState();
+    renderPermissions();
+
+    if (isApiErrorEnvelope(payload) && payload.error.code === "AUTHZ_FORBIDDEN") {
+      return;
+    }
+
+    handleApiFailure("Permissions load failed", payload);
+  };
+
+  const refreshVersions = async (): Promise<void> => {
+    if (!currentDocument || !authSession) {
+      versions = [];
+      renderVersions();
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/versions`,
+      {
+        headers: currentAuthHeaders()
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      versions = [];
+      renderVersions();
+      handleApiFailure("Version history load failed", payload);
+      return;
+    }
+
+    if (!isDocumentVersionsResponse(payload)) {
+      versions = [];
+      renderVersions();
+      setStatus("Version history load failed: backend response does not match expected version contract.");
+      return;
+    }
+
+    versions = sortVersionsDescending(payload.versions);
+    renderVersions();
+  };
+
+  const submitShareAssignment = async (): Promise<void> => {
+    if (!currentDocument) {
+      setStatus("Share update blocked: load a document first.");
+      return;
+    }
+
+    if (!authSession) {
+      setStatus("Share update blocked: sign in first.");
+      return;
+    }
+
+    if (documentRole !== "owner") {
+      setStatus("Share update blocked: only the owner can assign roles.");
+      return;
+    }
+
+    const principalId = sharePrincipalInput.value.trim();
+    if (!principalId) {
+      setStatus("Share update blocked: user ID or email is required.");
+      return;
+    }
+
+    const permissionLevel = shareRoleSelect.value as SharingRole;
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/shares`,
+      {
+        method: "POST",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify({
+          principalType: "user",
+          principalId,
+          permissionLevel
+        })
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("Share update failed", payload);
+      return;
+    }
+
+    if (!isDocumentShareResponse(payload)) {
+      setStatus("Share update failed: backend response does not match expected share contract.");
+      return;
+    }
+
+    permissions = upsertPermissionEntry(permissions, payload.permission);
+    await refreshPermissions();
+    sharePrincipalInput.value = "";
+    setStatus(`Assigned ${payload.permission.permissionLevel} to ${payload.permission.displayName}.`);
+  };
+
+  const removeExplicitShare = async (shareId: string): Promise<void> => {
+    if (!currentDocument) {
+      setStatus("Share removal blocked: load a document first.");
+      return;
+    }
+
+    if (!authSession) {
+      setStatus("Share removal blocked: sign in first.");
+      return;
+    }
+
+    if (documentRole !== "owner") {
+      setStatus("Share removal blocked: only the owner can revoke explicit shares.");
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/shares/${encodeURIComponent(shareId)}`,
+      {
+        method: "DELETE",
+        headers: currentAuthHeaders()
+      }
+    );
+
+    if (!response.ok) {
+      const payload = await readJson(response);
+      handleApiFailure("Share removal failed", payload);
+      return;
+    }
+
+    permissions = removePermissionEntry(permissions, shareId);
+    await refreshPermissions();
+    setStatus(`Removed explicit share ${shareId}.`);
+  };
+
+  const restoreVersion = async (versionId: string): Promise<void> => {
+    if (!currentDocument) {
+      setStatus("Restore blocked: load a document first.");
+      return;
+    }
+
+    if (!authSession) {
+      setStatus("Restore blocked: sign in first.");
+      return;
+    }
+
+    if (documentRole !== "owner") {
+      setStatus("Restore blocked: only the owner can restore document versions.");
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/versions/${encodeURIComponent(versionId)}:revert`,
+      {
+        method: "POST",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify({})
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("Version restore failed", payload);
+      return;
+    }
+
+    if (!isDocumentRestoreResponse(payload)) {
+      setStatus("Version restore failed: backend response does not match expected restore contract.");
+      return;
+    }
+
+    setStatus(
+      `Restore queued: ${payload.restoredFromVersionId} became new head ${payload.currentVersionId}. Reloading document state...`
+    );
+    await loadDocumentById(payload.documentId);
   };
 
   const syncDocumentFromEditor = (): void => {
@@ -1391,6 +2151,27 @@ export const mountApp = (root: HTMLElement): void => {
         return;
       }
 
+      if (typedMessage.type === "server.reload_required") {
+        const reload = message as unknown as {
+          documentId: string;
+          newVersionId: string;
+          reason: string;
+          serverRevision: number;
+          text: string;
+        };
+
+        pendingMutation = null;
+        updateRevisionState(reload.serverRevision);
+        applyEditorHtml(reload.text || EMPTY_EDITOR_HTML);
+        syncDocumentFromEditor();
+        syncSelectionStatus();
+        setStatus(
+          `Document head changed (${reload.reason}). Reloading version ${reload.newVersionId}.`
+        );
+        void loadDocumentById(reload.documentId);
+        return;
+      }
+
       if (typedMessage.type === "server.error") {
         const errorMessage = message as unknown as { code: string; message: string };
         setStatus(`WebSocket error: ${errorMessage.code} - ${errorMessage.message}`);
@@ -1467,6 +2248,7 @@ export const mountApp = (root: HTMLElement): void => {
       return;
     }
 
+    const previousDocumentId = currentDocument?.documentId ?? null;
     setStatus(`Loading ${documentId}...`);
     const response = await fetch(`${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}`, {
       headers: currentAuthHeaders()
@@ -1497,7 +2279,18 @@ export const mountApp = (root: HTMLElement): void => {
       resetCollaboration();
     }
 
+    if (previousDocumentId !== payload.documentId) {
+      resetDocumentAdminState();
+    }
+
+    if (!sessionInfo || sessionInfo.documentId !== payload.documentId) {
+      editAccess = null;
+    }
+
     resetAiState();
+    updateDocumentRoleState();
+    await refreshPermissions();
+    await refreshVersions();
     await refreshAiHistory();
     setStatus(`Loaded ${payload.documentId} successfully.`);
   };
@@ -1596,6 +2389,98 @@ export const mountApp = (root: HTMLElement): void => {
     syncToolbarState();
   };
 
+  authLoginRouteButton.addEventListener("click", () => {
+    navigateAuthRoute("login");
+  });
+
+  authRegisterRouteButton.addEventListener("click", () => {
+    navigateAuthRoute("register");
+  });
+
+  authWorkspaceRouteButton.addEventListener("click", () => {
+    navigateAuthRoute("workspace");
+  });
+
+  authLoginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setAuthLifecycleMessage("Signing in against the FastAPI auth backend...");
+
+    try {
+      const session = await loginAuthUser(currentAuthApiBase(), {
+        email: authLoginEmailInput.value.trim(),
+        password: authLoginPasswordInput.value
+      });
+      applyFastapiSession(session);
+      navigateAuthRoute("workspace");
+      await loadProtectedProfile("Signed in successfully. Protected workspace is authorized.");
+    } catch (error) {
+      setAuthLifecycleMessage(describeFastapiError("Login failed", error));
+    }
+  });
+
+  authRegisterForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setAuthLifecycleMessage("Creating account against the FastAPI auth backend...");
+
+    try {
+      const session = await registerAuthUser(currentAuthApiBase(), {
+        displayName: authRegisterNameInput.value.trim(),
+        email: authRegisterEmailInput.value.trim(),
+        password: authRegisterPasswordInput.value
+      });
+      applyFastapiSession(session);
+      navigateAuthRoute("workspace");
+      await loadProtectedProfile("Registration completed. Protected workspace is authorized.");
+    } catch (error) {
+      setAuthLifecycleMessage(describeFastapiError("Registration failed", error));
+    }
+  });
+
+  authRestoreButton.addEventListener("click", async () => {
+    await restoreFastapiSession();
+  });
+
+  authProtectedFetchButton.addEventListener("click", async () => {
+    await loadProtectedProfile("Protected route reloaded through /v1/me.");
+  });
+
+  authRefreshSessionButton.addEventListener("click", async () => {
+    if (!fastapiSession) {
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage("Refresh blocked: sign in first.");
+      return;
+    }
+
+    setAuthLifecycleMessage("Refreshing JWT session...");
+
+    try {
+      const refreshedSession = await refreshAuthSession(fastapiSession);
+      applyFastapiSession(refreshedSession);
+      await loadProtectedProfile("Session refreshed. Protected route still authorized.");
+    } catch (error) {
+      applyFastapiSession(null);
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage(describeFastapiError("Refresh failed", error));
+    }
+  });
+
+  authSignOutButton.addEventListener("click", () => {
+    applyFastapiSession(null);
+    navigateAuthRoute("login");
+    setAuthLifecycleMessage("Signed out and cleared the persisted auth session.");
+  });
+
+  authApiBaseInput.addEventListener("change", () => {
+    authApiBaseInput.value = currentAuthApiBase();
+  });
+
+  window.addEventListener("hashchange", () => {
+    renderAuthRoute();
+    if (currentAuthRoute() === "workspace" && fastapiSession && fastapiProfile === null) {
+      void loadProtectedProfile("Protected route restored after navigation.");
+    }
+  });
+
   createForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -1683,13 +2568,18 @@ export const mountApp = (root: HTMLElement): void => {
       workspaceIds: payload.workspaceIds
     };
     updateAuthState();
+    resetDocumentAdminState();
 
     if (sessionInfo) {
       resetCollaboration();
     }
 
     await refreshDocumentList();
-    await refreshAiHistory();
+    if (currentDocument) {
+      await loadDocumentById(currentDocument.documentId);
+    } else {
+      await refreshAiHistory();
+    }
     renderAiState();
     setStatus(
       `Signed in as ${payload.displayName}. Session bootstrap is now authorized for workspaces: ${payload.workspaceIds.join(", ")}.`
@@ -1699,6 +2589,7 @@ export const mountApp = (root: HTMLElement): void => {
   logoutButton.addEventListener("click", () => {
     authSession = null;
     updateAuthState();
+    resetDocumentAdminState();
     if (sessionInfo) {
       resetCollaboration();
     }
@@ -1731,6 +2622,10 @@ export const mountApp = (root: HTMLElement): void => {
     const payload = await readJson(response);
 
     if (!response.ok) {
+      if (isApiErrorEnvelope(payload) && payload.error.code === "AUTHZ_FORBIDDEN") {
+        editAccess = false;
+        updateDocumentRoleState();
+      }
       handleApiFailure("Session start failed", payload);
       return;
     }
@@ -1746,6 +2641,8 @@ export const mountApp = (root: HTMLElement): void => {
       sessionToken: payload.sessionToken,
       wsUrl: payload.wsUrl
     };
+    editAccess = true;
+    updateDocumentRoleState();
     updateSessionState();
     updateRevisionState(payload.serverRevision);
     renderPresence(payload.presence);
@@ -1827,6 +2724,57 @@ export const mountApp = (root: HTMLElement): void => {
     applyBlockFormat("code-block", true, true);
   });
 
+  shareForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitShareAssignment();
+  });
+
+  refreshPermissionsButton.addEventListener("click", async () => {
+    await refreshPermissions();
+  });
+
+  permissionsList.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const button = target.closest<HTMLButtonElement>("[data-action='remove-share']");
+    if (!button) {
+      return;
+    }
+
+    const shareId = button.dataset.shareId;
+    if (!shareId) {
+      return;
+    }
+
+    await removeExplicitShare(shareId);
+  });
+
+  refreshVersionsButton.addEventListener("click", async () => {
+    await refreshVersions();
+  });
+
+  versionList.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const button = target.closest<HTMLButtonElement>("[data-action='restore-version']");
+    if (!button || button.disabled) {
+      return;
+    }
+
+    const versionId = button.dataset.versionId;
+    if (!versionId) {
+      return;
+    }
+
+    await restoreVersion(versionId);
+  });
+
   rewriteButton.addEventListener("click", async () => {
     await startAiJob("rewrite");
   });
@@ -1875,7 +2823,13 @@ export const mountApp = (root: HTMLElement): void => {
   updateAuthState();
   updateEditorAvailability();
   setAutosaveState({ kind: "idle" });
+  applyFastapiSession(null, {
+    persist: false
+  });
+  renderAuthRoute();
   renderAiHistory();
   renderAiState();
+  resetDocumentAdminState();
   syncToolbarState();
+  void restoreFastapiSession("Checking for a saved auth session...");
 };

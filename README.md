@@ -9,12 +9,14 @@ This PoC demonstrates:
 - Dashboard document list with clickable open/load actions
 - Rich-text editor baseline with headings, bold, italic, lists, code blocks, and autosave status
 - Document-level RBAC + sharing API (`owner` / `editor` / `viewer`)
+- Document version history list/fetch/restore API with immutable snapshots
+- Role-aware sharing controls and version restore UI in `apps/web`
 - Demo-authenticated collaboration session bootstrap with presence and reconnect resync
 - AI rewrite + summarize suggestions with progressive streaming, cancel, compare/apply/reject/edit/undo, and per-document history
 - Shared API data contracts via `packages/contracts`
 
 This PoC intentionally does **not** implement yet:
-- Full JWT login/refresh flow, version restore, export
+- Full single-backend cutover from the current Node PoC to FastAPI for collaboration + AI, and export
 - Separate collaboration and AI worker container deployment (`apps/collab` and `apps/ai-worker` remain placeholders while the baseline runs in `apps/api`)
 
 ## Prerequisites
@@ -81,6 +83,27 @@ Demo login credentials for the collaboration baseline:
 - `usr_editor` / `demo-editor`
 - `usr_viewer` / `demo-viewer`
 
+## FastAPI Auth Baseline UI
+
+`apps/web` now also includes a hash-routed auth workspace for the Assignment 2 frontend auth proof:
+- `#auth/login`
+- `#auth/register`
+- `#auth/workspace` (protected route)
+
+This flow targets the FastAPI backend in `backend/`, not the Node PoC API in `apps/api`.
+
+Example local startup for the auth proof:
+
+```bash
+python3 -m uvicorn backend.app.main:app --reload --port 4021
+```
+
+Then in the web UI:
+- set `Auth API Base URL` to `http://127.0.0.1:4021`
+- register or log in
+- refresh the page on `#auth/workspace` to verify persisted session restore
+- optionally shorten `JWT_ACCESS_TTL_SECONDS` to demonstrate expired-token refresh and graceful fallback to sign-in
+
 ## What to Demo (3 minutes max)
 
 1. Open the web app in two browser windows.
@@ -89,10 +112,12 @@ Demo login credentials for the collaboration baseline:
 4. Join the collaboration session in both windows.
 5. Verify the online user list updates in both windows.
 6. Edit text in one window and watch the other window resync.
-7. Disconnect one window, keep typing locally, reconnect, and verify the latest draft syncs once.
-8. Select text in the editor, run `Rewrite Selection` or `Summarize Selection`, and watch the suggestion stream progressively.
-9. Cancel one AI request mid-stream, then run another request and compare, edit, accept, reject, and undo the applied suggestion.
-10. Verify the AI history list shows completed/canceled jobs plus the final user decision.
+7. As the owner, assign `viewer` access to a stakeholder and verify their join attempt is blocked by the role-aware UI + backend.
+8. Refresh version history, restore an older version as a new head, and verify the document reloads on the restored version.
+9. Disconnect one window, keep typing locally, reconnect, and verify the latest draft syncs once.
+10. Select text in the editor, run `Rewrite Selection` or `Summarize Selection`, and watch the suggestion stream progressively.
+11. Cancel one AI request mid-stream, then run another request and compare, edit, accept, reject, and undo the applied suggestion.
+12. Verify the AI history list shows completed/canceled jobs plus the final user decision.
 
 ## Contract Validation
 

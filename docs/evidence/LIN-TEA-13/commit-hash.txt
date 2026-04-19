@@ -1,0 +1,4 @@
+Evidence branch head: 47ba1060f566632a643b2f8c406d2f048e2cbf2a
+
+Branch: feat/LIN-TEA-13-auth-ui-session-persistence
+PR: https://github.com/A5an/SWE-midterm/pull/11

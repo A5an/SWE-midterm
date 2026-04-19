@@ -1,0 +1,2 @@
+PR URL: https://github.com/A5an/SWE-midterm/pull/10
+Status: branch synced with current `main` for mergeability review; evidence remains anchored to implementation commit `eb25abc5fb9841b937ee8132660f0fe08da31ece`.
