@@ -1,1 +1,2 @@
-PR not created yet. Replace this line with the PR URL after pushing feat/LIN-TEA-17-ai-streaming.
+Draft PR: https://github.com/A5an/SWE-midterm/pull/8
+Status: waiting for UI recording evidence before marking ready for review.
