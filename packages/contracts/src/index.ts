@@ -562,10 +562,15 @@ export const parseDemoLoginRequest = (value: unknown): ParseResult<DemoLoginRequ
     return { ok: false, reason: "Request body must be a JSON object." };
   }
 
-  const { userId, password } = value;
+  const userId = isNonEmptyString(value.userId)
+    ? value.userId
+    : isNonEmptyString(value.username)
+      ? value.username
+      : null;
+  const { password } = value;
 
   if (!isNonEmptyString(userId)) {
-    return { ok: false, reason: "userId must be a non-empty string." };
+    return { ok: false, reason: "userId or username must be a non-empty string." };
   }
 
   if (!isNonEmptyString(password)) {
