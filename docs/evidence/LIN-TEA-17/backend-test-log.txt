@@ -17,7 +17,8 @@ presence: disconnect removed the offline user from the room
 reconnect: resync applied once and the latest shared text persisted
 ai-stream: rewrite streamed progressive output and completed
 ai-history: queued decisions are rejected and only the requesting user may mutate AI job decisions
-ai-history: completed rewrite saved with pending history and accepted decision support
+ai-history: accepted jobs reject later reject writes and still allow a single undo transition
+ai-history: edited jobs also reject later reject writes
 ai-stream: summarize stream canceled successfully before completion
 ai-history: canceled summarize job is retained in per-document history
 API + websocket contract tests passed.

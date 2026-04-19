@@ -1958,6 +1958,20 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           return;
         }
 
+        if (parsed.value.decision !== "undone" && job.decision !== "pending") {
+          json(
+            response,
+            409,
+            buildErrorEnvelope(
+              requestId,
+              "AI_DECISION_CONFLICT",
+              `AI job '${jobId}' already recorded final decision '${job.decision}'.`,
+              false
+            )
+          );
+          return;
+        }
+
         job.decision = parsed.value.decision;
         job.appliedText = parsed.value.appliedText;
         touchAiJob(job);

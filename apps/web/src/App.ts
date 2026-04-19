@@ -545,7 +545,7 @@ export const mountApp = (root: HTMLElement): void => {
     if (!currentAiJob) {
       aiJobState.textContent = "No active AI request.";
     } else {
-      aiJobState.textContent = `${currentAiJob.feature} ${currentAiJob.status} on ${describeSelection(currentAiJob.selection)}`;
+      aiJobState.textContent = `${currentAiJob.feature} ${currentAiJob.status} / decision ${currentAiJob.decision} on ${describeSelection(currentAiJob.selection)}`;
     }
 
     const hasDocument = currentDocument !== null;
@@ -553,8 +553,14 @@ export const mountApp = (root: HTMLElement): void => {
     const generationActive =
       currentAiJob?.status === "queued" || currentAiJob?.status === "in_progress";
     const canUseAi = hasDocument && authSession !== null && hasActiveSession && !generationActive;
+    const decisionPending = currentAiJob?.decision === "pending";
     const canResolveSuggestion =
-      currentAiJob?.status === "completed" && currentAiJob.outputText.trim().length > 0;
+      currentAiJob?.status === "completed" &&
+      currentAiJob.outputText.trim().length > 0 &&
+      decisionPending;
+    const canUndoSuggestion =
+      (currentAiJob?.decision === "accepted" || currentAiJob?.decision === "edited") &&
+      lastAiUndo !== null;
 
     rewriteButton.disabled = !canUseAi;
     summarizeButton.disabled = !canUseAi;
@@ -562,7 +568,7 @@ export const mountApp = (root: HTMLElement): void => {
     editAiButton.disabled = !canResolveSuggestion;
     acceptAiButton.disabled = !canResolveSuggestion;
     rejectAiButton.disabled = !canResolveSuggestion;
-    undoAiButton.disabled = lastAiUndo === null;
+    undoAiButton.disabled = !canUndoSuggestion;
   };
 
   const closeAiStream = (): void => {

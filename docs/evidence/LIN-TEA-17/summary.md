@@ -9,6 +9,7 @@ Branch: `feat/LIN-TEA-17-ai-streaming`
 - Added frontend AI compare/apply/reject/edit/undo UX in `apps/web`.
 - Extended shared contracts in `packages/contracts` so API and frontend use the same AI request/history/stream types.
 - Tightened AI history integrity so only the requesting user can cancel or record a final decision, and decisions are only accepted after job completion.
+- Made `accepted`, `rejected`, `edited`, and `undone` terminal history states, with only a single `accepted/edited -> undone` transition allowed.
 - Switched the request payload to selection-first scope with limited nearby context instead of sending the full document body by default.
 - Required an active collaboration session before starting AI so accepted/edited suggestions always persist through the shared document mutation path.
 
