@@ -33,13 +33,18 @@ import {
   type CollaborationServerErrorMessage,
   type CollaborationServerMessage,
   type CollaborationServerPresenceMessage,
+  type CollaborationServerReloadRequiredMessage,
   type CollaborationServerUpdateMessage,
   type DocumentContent,
   type DocumentDetailResponse,
   type DocumentMetadataResponse,
   type DocumentPermissionEntry,
   type DocumentPermissionsResponse,
+  type DocumentRestoreResponse,
   type DocumentShareResponse,
+  type DocumentVersionResponse,
+  type DocumentVersionSummary,
+  type DocumentVersionsResponse,
   type SharingRole
 } from "@swe-midterm/contracts";
 
@@ -76,6 +81,19 @@ interface StoredShare {
   userId: string;
 }
 
+interface StoredVersion {
+  basedOnVersionId: string | null;
+  changeSummary: string;
+  createdAt: string;
+  createdByUserId: string;
+  documentId: string;
+  isRevert: boolean;
+  snapshotContent: DocumentContent;
+  snapshotTitle: string;
+  versionId: string;
+  versionNumber: number;
+}
+
 interface StoredDocument {
   collaboration: CollaborationState;
   content: DocumentContent;
@@ -83,6 +101,7 @@ interface StoredDocument {
   ownerUserId: string;
   shares: Map<string, StoredShare>;
   updatedAt: string;
+  versions: StoredVersion[];
 }
 
 interface AccessTokenPayload {
@@ -455,6 +474,94 @@ const createCreateDocumentResponse = (workspaceId: string, title: string): Docum
   };
 };
 
+const cloneDocumentContent = (content: DocumentContent): DocumentContent => ({
+  type: "doc",
+  content: content.content.map((block) => ({
+    type: "paragraph",
+    text: block.text
+  }))
+});
+
+const toVersionId = (versionNumber: number): string => `ver_${String(versionNumber).padStart(3, "0")}`;
+
+const appendDocumentVersion = (
+  document: StoredDocument,
+  createdByUserId: string,
+  options: {
+    basedOnVersionId?: string | null;
+    changeSummary: string;
+    createdAt?: string;
+    isRevert?: boolean;
+    snapshotContent?: DocumentContent;
+    snapshotTitle?: string;
+  }
+): StoredVersion => {
+  const versionNumber = document.versions.length + 1;
+  const versionId = toVersionId(versionNumber);
+  const version: StoredVersion = {
+    basedOnVersionId: options.basedOnVersionId ?? null,
+    changeSummary: options.changeSummary,
+    createdAt: options.createdAt ?? new Date().toISOString(),
+    createdByUserId,
+    documentId: document.metadata.documentId,
+    isRevert: options.isRevert ?? false,
+    snapshotContent: cloneDocumentContent(options.snapshotContent ?? document.content),
+    snapshotTitle: options.snapshotTitle ?? document.metadata.title,
+    versionId,
+    versionNumber
+  };
+
+  document.versions.push(version);
+  document.metadata.currentVersionId = version.versionId;
+  return version;
+};
+
+const findDocumentVersion = (document: StoredDocument, versionId: string): StoredVersion | null =>
+  document.versions.find((version) => version.versionId === versionId) ?? null;
+
+const toDocumentVersionSummary = (version: StoredVersion): DocumentVersionSummary => ({
+  versionId: version.versionId,
+  versionNumber: version.versionNumber,
+  createdAt: version.createdAt,
+  createdByUserId: version.createdByUserId,
+  basedOnVersionId: version.basedOnVersionId,
+  isRevert: version.isRevert,
+  changeSummary: version.changeSummary,
+  title: version.snapshotTitle
+});
+
+const buildDocumentVersionsResponse = (document: StoredDocument): DocumentVersionsResponse => ({
+  documentId: document.metadata.documentId,
+  currentVersionId: document.metadata.currentVersionId,
+  versions: document.versions.map((version) => toDocumentVersionSummary(version))
+});
+
+const buildDocumentVersionResponse = (version: StoredVersion): DocumentVersionResponse => ({
+  ...toDocumentVersionSummary(version),
+  documentId: version.documentId,
+  content: cloneDocumentContent(version.snapshotContent)
+});
+
+const buildPatchChangeSummary = (
+  previousTitle: string,
+  nextTitle: string,
+  previousContent: DocumentContent,
+  nextContent: DocumentContent
+): string => {
+  const titleChanged = previousTitle !== nextTitle;
+  const contentChanged = JSON.stringify(previousContent) !== JSON.stringify(nextContent);
+
+  if (titleChanged && contentChanged) {
+    return "Updated title and content";
+  }
+
+  if (titleChanged) {
+    return "Updated title";
+  }
+
+  return "Updated content";
+};
+
 const lookupDemoUser = (userId: string): DemoUser | null => DEMO_USERS.get(userId) ?? null;
 
 const resolvePrincipalUser = (principalId: string): [string, DemoUser] | null => {
@@ -544,6 +651,9 @@ const canEditDocument = (user: AccessTokenPayload, document: StoredDocument): bo
 };
 
 const canManageDocumentShares = (user: AccessTokenPayload, document: StoredDocument): boolean =>
+  resolveDocumentRole(user, document) === "owner";
+
+const canRestoreDocumentVersion = (user: AccessTokenPayload, document: StoredDocument): boolean =>
   resolveDocumentRole(user, document) === "owner";
 
 const buildCurrentAccessContext = (
@@ -724,6 +834,27 @@ const broadcastPresence = (state: CollaborationState): void => {
   }
 };
 
+const broadcastReloadRequired = (
+  document: StoredDocument,
+  state: CollaborationState,
+  versionId: string
+): void => {
+  const message: CollaborationServerReloadRequiredMessage = {
+    type: "server.reload_required",
+    reason: "revert_created_new_head",
+    documentId: document.metadata.documentId,
+    newVersionId: versionId,
+    serverRevision: state.serverRevision,
+    text: state.text
+  };
+
+  for (const participant of state.participants.values()) {
+    if (participant.socket) {
+      sendWebSocketJson(participant.socket, message);
+    }
+  }
+};
+
 const applyTextUpdate = (
   document: StoredDocument,
   state: CollaborationState,
@@ -735,6 +866,10 @@ const applyTextUpdate = (
 
   document.content = textToContent(mutation.text);
   document.updatedAt = new Date().toISOString();
+  appendDocumentVersion(document, mutation.authorUserId, {
+    changeSummary: `Collaborative edit by ${mutation.authorUserId}`,
+    createdAt: document.updatedAt
+  });
 };
 
 const decodeWebSocketFrames = (
@@ -1127,8 +1262,15 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           metadata,
           ownerUserId: authenticatedUser.value.sub,
           shares: new Map(),
-          updatedAt: metadata.createdAt
+          updatedAt: metadata.createdAt,
+          versions: []
         };
+        appendDocumentVersion(storedDocument, authenticatedUser.value.sub, {
+          changeSummary: "Initial version",
+          createdAt: metadata.createdAt,
+          snapshotContent: parsed.value.initialContent,
+          snapshotTitle: metadata.title
+        });
 
         store.set(metadata.documentId, storedDocument);
         json(response, 201, metadata);
@@ -1138,6 +1280,204 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         json(response, 400, buildErrorEnvelope(requestId, "MALFORMED_REQUEST", message, false));
         return;
       }
+    }
+
+    const versionCollectionMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/versions$/u);
+    if (request.method === "GET" && versionCollectionMatch) {
+      const [, documentId] = versionCollectionMatch;
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canReadDocument(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      json(response, 200, buildDocumentVersionsResponse(found));
+      return;
+    }
+
+    const versionRevertMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/versions\/([^/:]+):revert$/u);
+    if (request.method === "POST" && versionRevertMatch) {
+      const [, documentId, versionId] = versionRevertMatch;
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canRestoreDocumentVersion(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' cannot restore versions for document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const targetVersion = findDocumentVersion(found, versionId);
+      if (!targetVersion) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "VERSION_NOT_FOUND",
+            `Version '${versionId}' does not exist for document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      found.metadata.title = targetVersion.snapshotTitle;
+      found.content = cloneDocumentContent(targetVersion.snapshotContent);
+      found.updatedAt = new Date().toISOString();
+
+      const collaboration = ensureCollaborationState(found);
+      collaboration.serverRevision += 1;
+      collaboration.text = toParagraphText(found.content);
+      collaboration.mutationHistory.clear();
+      collaboration.mutationOrder = [];
+
+      const restoredVersion = appendDocumentVersion(found, authenticatedUser.value.sub, {
+        basedOnVersionId: targetVersion.versionId,
+        changeSummary: `Restored from version ${targetVersion.versionId}`,
+        createdAt: found.updatedAt,
+        isRevert: true,
+        snapshotContent: found.content,
+        snapshotTitle: found.metadata.title
+      });
+
+      broadcastReloadRequired(found, collaboration, restoredVersion.versionId);
+
+      const restoreResponse: DocumentRestoreResponse = {
+        documentId,
+        restoredFromVersionId: targetVersion.versionId,
+        currentVersionId: restoredVersion.versionId,
+        updatedAt: found.updatedAt
+      };
+      json(response, 202, restoreResponse);
+      return;
+    }
+
+    const versionItemMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/versions\/([^/:]+)$/u);
+    if (request.method === "GET" && versionItemMatch) {
+      const [, documentId, versionId] = versionItemMatch;
+      const found = store.get(documentId);
+
+      if (!found) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "DOCUMENT_NOT_FOUND",
+            `Document '${documentId}' does not exist.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canReadDocument(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      const version = findDocumentVersion(found, versionId);
+      if (!version) {
+        json(
+          response,
+          404,
+          buildErrorEnvelope(
+            requestId,
+            "VERSION_NOT_FOUND",
+            `Version '${versionId}' does not exist for document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
+      json(response, 200, buildDocumentVersionResponse(version));
+      return;
     }
 
     const permissionsMatch = pathname.match(/^\/v1\/documents\/([^/]+)\/permissions$/u);
@@ -2075,16 +2415,43 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           return;
         }
 
-        if (parsed.value.title) {
-          found.metadata.title = parsed.value.title;
+        const previousTitle = found.metadata.title;
+        const nextTitle = parsed.value.title ?? previousTitle;
+        const previousContent = cloneDocumentContent(found.content);
+        const contentChanged = JSON.stringify(previousContent) !== JSON.stringify(parsed.value.content);
+        const titleChanged = previousTitle !== nextTitle;
+
+        if (!titleChanged && !contentChanged) {
+          const detail: DocumentDetailResponse = {
+            ...found.metadata,
+            content: found.content,
+            updatedAt: found.updatedAt
+          };
+          json(response, 200, detail);
+          return;
         }
 
-        found.content = parsed.value.content;
+        found.content = cloneDocumentContent(parsed.value.content);
         found.updatedAt = new Date().toISOString();
+        found.metadata.title = nextTitle;
 
         const collaboration = ensureCollaborationState(found);
-        collaboration.serverRevision += 1;
-        collaboration.text = toParagraphText(parsed.value.content);
+        if (contentChanged) {
+          collaboration.serverRevision += 1;
+          collaboration.text = toParagraphText(found.content);
+        }
+
+        appendDocumentVersion(found, authenticatedUser.value.sub, {
+          changeSummary: buildPatchChangeSummary(
+            previousTitle,
+            nextTitle,
+            previousContent,
+            found.content
+          ),
+          createdAt: found.updatedAt,
+          snapshotContent: found.content,
+          snapshotTitle: nextTitle
+        });
 
         const detail: DocumentDetailResponse = {
           ...found.metadata,
