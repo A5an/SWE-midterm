@@ -1,2 +1,2 @@
-PR not opened from this workspace yet.
-Open a PR from branch `feat/LIN-TEA-11-Version-history+restore-API` after push and replace this note with the final PR URL.
+PR URL: https://github.com/A5an/SWE-midterm/pull/10
+Status: branch synced with current `main` for mergeability review; evidence remains anchored to implementation commit `eb25abc5fb9841b937ee8132660f0fe08da31ece`.

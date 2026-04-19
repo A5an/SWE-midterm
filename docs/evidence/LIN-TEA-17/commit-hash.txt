@@ -1,0 +1,2 @@
+Implementation anchor commit: ff44bc1227e4b81706b3f3ec5167d977292ec6cb
+Purpose: rebased viewer-auth fix commit that blocks shared viewers from creating AI jobs directly, preserves the owner/editor-only AI permission model, and keeps the TEA-17 contract coverage passing on current main.

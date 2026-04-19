@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { createConnection } from "node:net";
 import {
+  isAiHistoryResponse,
   isApiErrorEnvelope,
+  isCreateAiJobResponse,
   isCollaborationSessionResponse,
   isDemoLoginResponse,
   isDocumentDetailResponse,
@@ -24,6 +26,10 @@ interface AuthSession {
   displayName: string;
   userId: string;
   workspaceIds: string[];
+}
+
+interface SseBucket {
+  events: Array<Record<string, unknown>>;
 }
 
 const server = createApiServer();
@@ -51,6 +57,61 @@ const delay = async (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+
+const openSseStream = async (
+  url: string
+): Promise<{ bucket: SseBucket; close: () => Promise<void> }> => {
+  const controller = new AbortController();
+  const response = await fetch(url, {
+    headers: {
+      Accept: "text/event-stream"
+    },
+    signal: controller.signal
+  });
+  assert.equal(response.status, 200, "AI stream must return 200.");
+  assert.ok(response.body, "AI stream must expose a readable body.");
+
+  const bucket: SseBucket = { events: [] };
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const pump = (async () => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+
+      for (const frame of frames) {
+        const dataLine = frame
+          .split("\n")
+          .find((line) => line.startsWith("data: "));
+        if (!dataLine) {
+          continue;
+        }
+        bucket.events.push(JSON.parse(dataLine.slice(6)) as Record<string, unknown>);
+      }
+    }
+  })();
+
+  return {
+    bucket,
+    close: async () => {
+      controller.abort();
+      try {
+        await pump;
+      } catch {
+        // Abort is expected in some flows.
+      }
+    }
+  };
+};
 
 const attachMessageBucket = (ws: WebSocket): MessageBucket => {
   const bucket: MessageBucket = { messages: [] };
@@ -99,6 +160,25 @@ const waitForOptionalMessage = async <T extends Record<string, unknown>>(
   }
 
   return null;
+};
+
+const waitForSseEvent = async <T extends Record<string, unknown>>(
+  bucket: SseBucket,
+  predicate: (event: Record<string, unknown>) => boolean,
+  timeoutMs = 3_000
+): Promise<T> => {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const index = bucket.events.findIndex(predicate);
+    if (index >= 0) {
+      const [event] = bucket.events.splice(index, 1);
+      return event as T;
+    }
+    await delay(20);
+  }
+
+  throw new Error("Timed out waiting for AI SSE event.");
 };
 
 const openSocket = async (
@@ -665,6 +745,31 @@ const main = async (): Promise<void> => {
     (viewerSessionBody as { error: { code: string } }).error.code,
     "AUTHZ_FORBIDDEN"
   );
+  const viewerAiCreateResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/ai/jobs`, {
+    method: "POST",
+    headers: authHeaders(viewer.accessToken),
+    body: JSON.stringify({
+      feature: "rewrite",
+      selection: {
+        start: 0,
+        end: "Editor update applied through the direct document API.".length,
+        text: "Editor update applied through the direct document API."
+      },
+      context: {
+        before: "",
+        after: ""
+      },
+      instructions: "Make it concise"
+    })
+  });
+  assert.equal(viewerAiCreateResponse.status, 403, "Viewer must be blocked from direct AI invocation.");
+  const viewerAiCreateBody = (await viewerAiCreateResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(viewerAiCreateBody), true);
+  assert.equal(
+    (viewerAiCreateBody as { error: { code: string } }).error.code,
+    "AUTHZ_FORBIDDEN"
+  );
+  console.log("rbac: viewer direct AI invocation rejected with 403 AUTHZ_FORBIDDEN");
 
   const ownerSession = await createSession(owner.accessToken);
   const editorSession = await createSession(editor.accessToken);
@@ -814,6 +919,259 @@ const main = async (): Promise<void> => {
     offlineReplayMessage.text
   );
   console.log("reconnect: resync applied once and the latest shared text persisted");
+  const createAiJob = async (
+    feature: "rewrite" | "summarize",
+    documentText: string
+  ): Promise<{
+    createdAt: string;
+    documentId: string;
+    jobId: string;
+    streamToken: string;
+    streamUrl: string;
+  }> => {
+    const response = await fetch(`${baseUrl}/v1/documents/${created.documentId}/ai/jobs`, {
+      method: "POST",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        feature,
+        selection: {
+          start: 0,
+          end: documentText.length,
+          text: documentText
+        },
+        context: {
+          before: "",
+          after: ""
+        },
+        instructions: feature === "rewrite" ? "Make it concise" : null
+      })
+    });
+
+    assert.equal(response.status, 201, "AI job creation must return 201.");
+    const body = (await response.json()) as unknown;
+    assert.equal(isCreateAiJobResponse(body), true, "AI job creation must match the shared contract.");
+    return body as {
+      createdAt: string;
+      documentId: string;
+      jobId: string;
+      streamToken: string;
+      streamUrl: string;
+      };
+  };
+
+  const completeAiJob = async (job: {
+    jobId: string;
+    streamToken: string;
+    streamUrl: string;
+  }): Promise<string> => {
+    const stream = await openSseStream(`${job.streamUrl}?token=${encodeURIComponent(job.streamToken)}`);
+    await waitForSseEvent<{ status: string }>(
+      stream.bucket,
+      (event) => event.type === "ai.status" && typeof event.status === "string"
+    );
+    const chunk = await waitForSseEvent<{ outputText: string; type: string }>(
+      stream.bucket,
+      (event) =>
+        event.type === "ai.chunk" &&
+        typeof event.outputText === "string" &&
+        event.outputText.length > 0
+    );
+    const completed = await waitForSseEvent<{ outputText: string; status: string; type: string }>(
+      stream.bucket,
+      (event) =>
+        event.type === "ai.completed" &&
+        event.status === "completed" &&
+        typeof event.outputText === "string"
+    );
+    assert.ok(
+      chunk.outputText.length < completed.outputText.length,
+      "AI stream must deliver progressive chunks before completion."
+    );
+    await stream.close();
+    return completed.outputText;
+  };
+
+  const rewriteJob = await createAiJob("rewrite", offlineReplayMessage.text);
+  const queuedDecisionResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${rewriteJob.jobId}/decision`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        decision: "rejected",
+        appliedText: null
+      })
+    }
+  );
+  assert.equal(queuedDecisionResponse.status, 409, "Queued AI jobs must reject decision writes.");
+  const queuedDecisionBody = (await queuedDecisionResponse.json()) as { error: { code: string } };
+  assert.equal(queuedDecisionBody.error.code, "AI_JOB_NOT_COMPLETED");
+  const rewriteCompleted = await completeAiJob(rewriteJob);
+  console.log("ai-stream: rewrite streamed progressive output and completed");
+
+  const historyAfterRewriteResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs`,
+    {
+      headers: authHeaders(owner.accessToken)
+    }
+  );
+  assert.equal(historyAfterRewriteResponse.status, 200, "AI history endpoint must return 200.");
+  const historyAfterRewriteBody = (await historyAfterRewriteResponse.json()) as unknown;
+  assert.equal(isAiHistoryResponse(historyAfterRewriteBody), true, "AI history must match the shared contract.");
+  const rewriteHistoryRecord = (
+    historyAfterRewriteBody as { jobs: Array<{ jobId: string; status: string; decision: string }> }
+  ).jobs.find((job) => job.jobId === rewriteJob.jobId);
+  assert.ok(rewriteHistoryRecord, "Completed rewrite job must be present in history.");
+  assert.equal(rewriteHistoryRecord.jobId, rewriteJob.jobId);
+  assert.equal(rewriteHistoryRecord.status, "completed");
+  assert.equal(rewriteHistoryRecord.decision, "pending");
+
+  const acceptDecisionResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${rewriteJob.jobId}/decision`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        decision: "accepted",
+        appliedText: rewriteCompleted
+      })
+    }
+  );
+  assert.equal(acceptDecisionResponse.status, 200, "AI decision endpoint must persist accepted state.");
+  const crossUserDecisionResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${rewriteJob.jobId}/decision`,
+    {
+      method: "POST",
+      headers: authHeaders(editor.accessToken),
+      body: JSON.stringify({
+        decision: "rejected",
+        appliedText: null
+      })
+    }
+  );
+  assert.equal(crossUserDecisionResponse.status, 403, "Only the requesting user may mutate AI job decisions.");
+  const crossUserDecisionBody = (await crossUserDecisionResponse.json()) as { error: { code: string } };
+  assert.equal(crossUserDecisionBody.error.code, "AI_JOB_FORBIDDEN");
+  const rejectAfterAcceptResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${rewriteJob.jobId}/decision`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        decision: "rejected",
+        appliedText: null
+      })
+    }
+  );
+  assert.equal(rejectAfterAcceptResponse.status, 409, "Accepted AI jobs must reject a later reject decision.");
+  const rejectAfterAcceptBody = (await rejectAfterAcceptResponse.json()) as { error: { code: string } };
+  assert.equal(rejectAfterAcceptBody.error.code, "AI_DECISION_CONFLICT");
+  const undoAfterAcceptResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${rewriteJob.jobId}/decision`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        decision: "undone",
+        appliedText: rewriteCompleted
+      })
+    }
+  );
+  assert.equal(undoAfterAcceptResponse.status, 200, "Accepted AI jobs must allow an undo decision.");
+  const undoAfterAcceptBody = (await undoAfterAcceptResponse.json()) as {
+    appliedText: string | null;
+    decision: string;
+  };
+  assert.equal(undoAfterAcceptBody.decision, "undone");
+  assert.equal(undoAfterAcceptBody.appliedText, rewriteCompleted);
+  const secondUndoResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${rewriteJob.jobId}/decision`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        decision: "undone",
+        appliedText: rewriteCompleted
+      })
+    }
+  );
+  assert.equal(secondUndoResponse.status, 409, "Undone AI jobs must remain terminal.");
+  console.log("ai-history: queued decisions are rejected and only the requesting user may mutate AI job decisions");
+  console.log("ai-history: accepted jobs reject later reject writes and still allow a single undo transition");
+
+  const editedJob = await createAiJob("rewrite", offlineReplayMessage.text);
+  const editedOutput = await completeAiJob(editedJob);
+  const editedDecisionResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${editedJob.jobId}/decision`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        decision: "edited",
+        appliedText: `${editedOutput} Manual final sentence.`
+      })
+    }
+  );
+  assert.equal(editedDecisionResponse.status, 200, "Completed AI jobs must allow an edited final decision.");
+  const rejectAfterEditResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${editedJob.jobId}/decision`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        decision: "rejected",
+        appliedText: null
+      })
+    }
+  );
+  assert.equal(rejectAfterEditResponse.status, 409, "Edited AI jobs must reject a later reject decision.");
+  const rejectAfterEditBody = (await rejectAfterEditResponse.json()) as { error: { code: string } };
+  assert.equal(rejectAfterEditBody.error.code, "AI_DECISION_CONFLICT");
+  console.log("ai-history: edited jobs also reject later reject writes");
+
+  const summarizeJob = await createAiJob("summarize", offlineReplayMessage.text);
+  const summarizeStream = await openSseStream(
+    `${summarizeJob.streamUrl}?token=${encodeURIComponent(summarizeJob.streamToken)}`
+  );
+  await waitForSseEvent<{ status: string }>(
+    summarizeStream.bucket,
+    (event) => event.type === "ai.status" && typeof event.status === "string"
+  );
+  await waitForSseEvent<{ outputText: string }>(
+    summarizeStream.bucket,
+    (event) => event.type === "ai.chunk" && typeof event.outputText === "string"
+  );
+  const cancelResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${summarizeJob.jobId}/cancel`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken)
+    }
+  );
+  assert.equal(cancelResponse.status, 200, "AI cancel endpoint must return 200.");
+  const canceledEvent = await waitForSseEvent<{ status: string; type: string }>(
+    summarizeStream.bucket,
+    (event) => event.type === "ai.canceled" && event.status === "canceled"
+  );
+  assert.equal(canceledEvent.status, "canceled");
+  await summarizeStream.close();
+  console.log("ai-stream: summarize stream canceled successfully before completion");
+
+  const historyAfterCancelResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/ai/jobs`,
+    {
+      headers: authHeaders(owner.accessToken)
+    }
+  );
+  const historyAfterCancelBody = (await historyAfterCancelResponse.json()) as unknown;
+  assert.equal(isAiHistoryResponse(historyAfterCancelBody), true);
+  const summarizeHistoryRecord = (
+    historyAfterCancelBody as { jobs: Array<{ jobId: string; status: string }> }
+  ).jobs.find((job) => job.jobId === summarizeJob.jobId);
+  assert.ok(summarizeHistoryRecord, "Canceled summarize job must remain in history.");
+  assert.equal(summarizeHistoryRecord.jobId, summarizeJob.jobId);
+  assert.equal(summarizeHistoryRecord.status, "canceled");
+  console.log("ai-history: canceled summarize job is retained in per-document history");
 
   const downgradedShareResponse = await fetch(
     `${baseUrl}/v1/documents/${created.documentId}/shares/${editorShare.permission.shareId}`,
@@ -847,9 +1205,7 @@ const main = async (): Promise<void> => {
     type: string;
   }>(
     reconnectedEditor.bucket,
-    (message) =>
-      message.type === "server.error" &&
-      message.code === "COLLAB_ACCESS_REVOKED"
+    (message) => message.type === "server.error" && message.code === "COLLAB_ACCESS_REVOKED"
   );
   assert.match(revokedError.message, /no longer has edit access/u);
 
