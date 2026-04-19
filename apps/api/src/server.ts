@@ -621,6 +621,9 @@ const buildPermissionsResponse = (document: StoredDocument): DocumentPermissions
   };
 };
 
+const isAiJobOwner = (user: AccessTokenPayload, job: AiJobRuntime): boolean =>
+  user.sub === job.requestedBy.userId;
+
 const createCollaborationState = (documentText: string): CollaborationState => ({
   mutationHistory: new Map(),
   mutationOrder: [],
@@ -1658,7 +1661,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
               displayName: authenticatedUser.value.name
             },
             selection: parsed.value.selection,
-            sourceText: parsed.value.documentText,
+            sourceText: parsed.value.selection.text,
             status: "queued",
             subscribers: new Set(),
             startTimer: null,
@@ -1876,7 +1879,39 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         return;
       }
 
+      if (!isAiJobOwner(authenticatedUser.value, job)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AI_JOB_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' cannot modify AI job '${jobId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
       if (action === "cancel") {
+        if (
+          job.status !== "queued" &&
+          job.status !== "in_progress" &&
+          job.status !== "canceled"
+        ) {
+          json(
+            response,
+            409,
+            buildErrorEnvelope(
+              requestId,
+              "AI_JOB_NOT_CANCELABLE",
+              `AI job '${jobId}' cannot be canceled from status '${job.status}'.`,
+              false
+            )
+          );
+          return;
+        }
+
         cancelAiJob(job);
         json(response, 200, toAiHistoryRecord(job));
         return;
@@ -1888,6 +1923,38 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
 
         if (!parsed.ok) {
           json(response, 400, buildErrorEnvelope(requestId, "VALIDATION_ERROR", parsed.reason, false));
+          return;
+        }
+
+        if (job.status !== "completed") {
+          json(
+            response,
+            409,
+            buildErrorEnvelope(
+              requestId,
+              "AI_JOB_NOT_COMPLETED",
+              `AI job '${jobId}' must be completed before recording a decision.`,
+              false
+            )
+          );
+          return;
+        }
+
+        if (
+          parsed.value.decision === "undone" &&
+          job.decision !== "accepted" &&
+          job.decision !== "edited"
+        ) {
+          json(
+            response,
+            409,
+            buildErrorEnvelope(
+              requestId,
+              "AI_DECISION_CONFLICT",
+              `AI job '${jobId}' cannot be marked undone before an accepted or edited apply.`,
+              false
+            )
+          );
           return;
         }
 

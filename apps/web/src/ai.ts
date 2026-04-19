@@ -4,6 +4,11 @@ export interface EditorSelectionRange {
   text: string;
 }
 
+export interface AiRequestContextPayload {
+  before: string;
+  after: string;
+}
+
 export const normalizeEditorSelection = (
   documentText: string,
   start: number | null | undefined,
@@ -35,6 +40,15 @@ export const applySuggestionToDocument = (
   replacementText: string
 ): string =>
   `${documentText.slice(0, selection.start)}${replacementText}${documentText.slice(selection.end)}`;
+
+export const buildAiRequestContext = (
+  documentText: string,
+  selection: EditorSelectionRange,
+  radius = 120
+): AiRequestContextPayload => ({
+  before: documentText.slice(Math.max(0, selection.start - radius), selection.start),
+  after: documentText.slice(selection.end, Math.min(documentText.length, selection.end + radius))
+});
 
 export const describeSelection = (selection: EditorSelectionRange): string =>
   selection.start === 0 && selection.end === selection.text.length

@@ -93,10 +93,15 @@ export interface AiSelectionRange {
   text: string;
 }
 
+export interface AiRequestContext {
+  before: string;
+  after: string;
+}
+
 export interface CreateAiJobRequest {
   feature: Extract<AiFeatureType, "rewrite" | "summarize">;
-  documentText: string;
   selection: AiSelectionRange;
+  context: AiRequestContext;
   instructions: string | null;
 }
 
@@ -425,21 +430,24 @@ export const parseCreateAiJobRequest = (value: unknown): ParseResult<CreateAiJob
     return { ok: false, reason: "feature must be either 'rewrite' or 'summarize'." };
   }
 
-  if (typeof value.documentText !== "string") {
-    return { ok: false, reason: "documentText must be a string." };
-  }
-
   if (!isAiSelectionRange(value.selection)) {
     return { ok: false, reason: "selection must include valid start/end offsets and text." };
   }
 
-  if (value.selection.end > value.documentText.length) {
-    return { ok: false, reason: "selection end cannot exceed documentText length." };
+  if (value.selection.text.trim().length === 0) {
+    return { ok: false, reason: "selection text must not be empty." };
   }
 
-  const selectedText = value.documentText.slice(value.selection.start, value.selection.end);
-  if (selectedText !== value.selection.text) {
-    return { ok: false, reason: "selection text must match the selected documentText range." };
+  if (
+    !isRecord(value.context) ||
+    typeof value.context.before !== "string" ||
+    typeof value.context.after !== "string"
+  ) {
+    return { ok: false, reason: "context must include string before/after fields." };
+  }
+
+  if (value.context.before.length > 240 || value.context.after.length > 240) {
+    return { ok: false, reason: "context before/after must be 240 characters or fewer." };
   }
 
   if (value.instructions !== null && typeof value.instructions !== "string") {
@@ -450,8 +458,11 @@ export const parseCreateAiJobRequest = (value: unknown): ParseResult<CreateAiJob
     ok: true,
     value: {
       feature: value.feature,
-      documentText: value.documentText,
       selection: value.selection,
+      context: {
+        before: value.context.before,
+        after: value.context.after
+      },
       instructions: value.instructions
     }
   };
@@ -475,6 +486,13 @@ export const parseAiSuggestionDecisionRequest = (
 
   if (value.appliedText !== null && typeof value.appliedText !== "string") {
     return { ok: false, reason: "appliedText must be null or string." };
+  }
+
+  if (
+    (value.decision === "accepted" || value.decision === "edited") &&
+    typeof value.appliedText !== "string"
+  ) {
+    return { ok: false, reason: "accepted or edited decisions must include appliedText." };
   }
 
   return {

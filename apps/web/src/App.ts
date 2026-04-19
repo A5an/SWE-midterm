@@ -15,6 +15,7 @@ import {
 } from "@swe-midterm/contracts";
 import {
   applySuggestionToDocument,
+  buildAiRequestContext,
   describeSelection,
   normalizeEditorSelection,
   type EditorSelectionRange
@@ -531,9 +532,11 @@ export const mountApp = (root: HTMLElement): void => {
 
   const renderAiState = (): void => {
     const selection = currentSelection();
-    aiSelectionState.textContent = currentDocument
-      ? `Current AI scope: ${describeSelection(selection)}`
-      : "Load a document to select text for AI.";
+    aiSelectionState.textContent = !currentDocument
+      ? "Load a document to select text for AI."
+      : !sessionInfo
+        ? "Join a collaboration session before starting AI so accepted changes persist to the shared document."
+        : `Current AI scope: ${describeSelection(selection)}`;
 
     aiOriginal.value = currentAiJob ? currentAiJob.selection.text : "";
     aiSuggestion.value = currentAiJob ? currentAiJob.outputText : "";
@@ -546,9 +549,10 @@ export const mountApp = (root: HTMLElement): void => {
     }
 
     const hasDocument = currentDocument !== null;
+    const hasActiveSession = sessionInfo !== null;
     const generationActive =
       currentAiJob?.status === "queued" || currentAiJob?.status === "in_progress";
-    const canUseAi = hasDocument && authSession !== null && !generationActive;
+    const canUseAi = hasDocument && authSession !== null && hasActiveSession && !generationActive;
     const canResolveSuggestion =
       currentAiJob?.status === "completed" && currentAiJob.outputText.trim().length > 0;
 
@@ -812,6 +816,11 @@ export const mountApp = (root: HTMLElement): void => {
       return;
     }
 
+    if (!sessionInfo) {
+      setStatus("AI request blocked: join a collaboration session first so accepted changes are persisted.");
+      return;
+    }
+
     if (currentAiJob && (currentAiJob.status === "queued" || currentAiJob.status === "in_progress")) {
       setStatus("Only one in-flight AI request is supported in this baseline. Cancel the current stream first.");
       return;
@@ -827,8 +836,8 @@ export const mountApp = (root: HTMLElement): void => {
         headers: currentAuthHeaders(true),
         body: JSON.stringify({
           feature,
-          documentText: collabEditor.value,
           selection,
+          context: buildAiRequestContext(collabEditor.value, selection),
           instructions: aiInstructions.value.trim() || null
         })
       }

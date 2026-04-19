@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   applySuggestionToDocument,
+  buildAiRequestContext,
   describeSelection,
   normalizeEditorSelection
 } from "./ai.ts";
@@ -23,6 +24,10 @@ assert.equal(
   applySuggestionToDocument("alpha beta gamma", selected, "delta"),
   "alpha delta gamma"
 );
+assert.deepEqual(buildAiRequestContext("alpha beta gamma", selected, 3), {
+  before: "ha ",
+  after: " ga"
+});
 assert.equal(describeSelection(selected), "Selection 6-10 (4 chars)");
 assert.equal(describeSelection(fallback), "Entire document (10 chars)");
 

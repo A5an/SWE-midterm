@@ -8,6 +8,9 @@ Branch: `feat/LIN-TEA-17-ai-streaming`
 - Added progressive SSE streaming, cancel support, and per-document AI history with final decision persistence.
 - Added frontend AI compare/apply/reject/edit/undo UX in `apps/web`.
 - Extended shared contracts in `packages/contracts` so API and frontend use the same AI request/history/stream types.
+- Tightened AI history integrity so only the requesting user can cancel or record a final decision, and decisions are only accepted after job completion.
+- Switched the request payload to selection-first scope with limited nearby context instead of sending the full document body by default.
+- Required an active collaboration session before starting AI so accepted/edited suggestions always persist through the shared document mutation path.
 
 ## Why It Changed
 - `LIN-TEA-17` requires baseline AI rewrite + summarize flows with progressive streaming, cancel, user-controlled suggestion handling, and saved per-document history.
@@ -20,5 +23,5 @@ Branch: `feat/LIN-TEA-17-ai-streaming`
 - `build-log.txt`: repo build output.
 - `ai-flow-transcript.md`: short user-flow transcript for the AI suggestion lifecycle.
 - `video-note.md`: final UI recording link for the AI flow demo.
-- `commit-hash.txt`: current repository commit hash.
+- `commit-hash.txt`: latest implementation-anchor commit hash captured for this evidence bundle.
 - `pr-link.txt`: current GitHub PR URL and status note.
