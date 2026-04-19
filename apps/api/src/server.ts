@@ -1220,6 +1220,30 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         return;
       }
 
+      const authenticatedUser = authenticateRequest(request);
+      if (!authenticatedUser.ok) {
+        json(
+          response,
+          authenticatedUser.statusCode,
+          buildErrorEnvelope(requestId, authenticatedUser.code, authenticatedUser.message, false)
+        );
+        return;
+      }
+
+      if (!canReadDocument(authenticatedUser.value, found)) {
+        json(
+          response,
+          403,
+          buildErrorEnvelope(
+            requestId,
+            "AUTHZ_FORBIDDEN",
+            `User '${authenticatedUser.value.sub}' does not have access to document '${documentId}'.`,
+            false
+          )
+        );
+        return;
+      }
+
       const collaboration = ensureCollaborationState(found);
       const participant = collaboration.participants.get(sessionId);
 
