@@ -1631,6 +1631,21 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
       }
 
       if (request.method === "POST") {
+        if (!canEditDocument(authenticatedUser.value, found)) {
+          json(
+            response,
+            403,
+            buildErrorEnvelope(
+              requestId,
+              "AUTHZ_FORBIDDEN",
+              `User '${authenticatedUser.value.sub}' does not have AI invocation access to document '${documentId}'.`,
+              false,
+              { workspaceId: found.metadata.workspaceId }
+            )
+          );
+          return;
+        }
+
         try {
           const rawBody = await readJsonBody(request);
           const parsed = parseCreateAiJobRequest(rawBody);

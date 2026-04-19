@@ -525,6 +525,31 @@ const main = async (): Promise<void> => {
     (viewerSessionBody as { error: { code: string } }).error.code,
     "AUTHZ_FORBIDDEN"
   );
+  const viewerAiCreateResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/ai/jobs`, {
+    method: "POST",
+    headers: authHeaders(viewer.accessToken),
+    body: JSON.stringify({
+      feature: "rewrite",
+      selection: {
+        start: 0,
+        end: "Editor update applied through the direct document API.".length,
+        text: "Editor update applied through the direct document API."
+      },
+      context: {
+        before: "",
+        after: ""
+      },
+      instructions: "Make it concise"
+    })
+  });
+  assert.equal(viewerAiCreateResponse.status, 403, "Viewer must be blocked from direct AI invocation.");
+  const viewerAiCreateBody = (await viewerAiCreateResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(viewerAiCreateBody), true);
+  assert.equal(
+    (viewerAiCreateBody as { error: { code: string } }).error.code,
+    "AUTHZ_FORBIDDEN"
+  );
+  console.log("rbac: viewer direct AI invocation rejected with 403 AUTHZ_FORBIDDEN");
 
   const ownerSession = await createSession(owner.accessToken);
   const editorSession = await createSession(editor.accessToken);
