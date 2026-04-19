@@ -1,4 +1,5 @@
-import assert from "node:assert/strict";
+import { describe, expect, it } from "vitest";
+
 import {
   applySuggestionToDocument,
   buildAiRequestContext,
@@ -6,29 +7,37 @@ import {
   normalizeEditorSelection
 } from "./ai.ts";
 
-const selected = normalizeEditorSelection("alpha beta gamma", 6, 10);
-assert.deepEqual(selected, {
-  start: 6,
-  end: 10,
-  text: "beta"
-});
+describe("ai helpers", () => {
+  it("normalizes explicit selections", () => {
+    const selected = normalizeEditorSelection("alpha beta gamma", 6, 10);
 
-const fallback = normalizeEditorSelection("entire doc", 4, 4);
-assert.deepEqual(fallback, {
-  start: 0,
-  end: 10,
-  text: "entire doc"
-});
+    expect(selected).toEqual({
+      start: 6,
+      end: 10,
+      text: "beta"
+    });
+  });
 
-assert.equal(
-  applySuggestionToDocument("alpha beta gamma", selected, "delta"),
-  "alpha delta gamma"
-);
-assert.deepEqual(buildAiRequestContext("alpha beta gamma", selected, 3), {
-  before: "ha ",
-  after: " ga"
-});
-assert.equal(describeSelection(selected), "Selection 6-10 (4 chars)");
-assert.equal(describeSelection(fallback), "Entire document (10 chars)");
+  it("falls back to the entire document when no range is selected", () => {
+    const fallback = normalizeEditorSelection("entire doc", 4, 4);
 
-console.log("frontend-ai: helper selection/apply tests passed");
+    expect(fallback).toEqual({
+      start: 0,
+      end: 10,
+      text: "entire doc"
+    });
+  });
+
+  it("applies suggestions and builds nearby context", () => {
+    const selected = normalizeEditorSelection("alpha beta gamma", 6, 10);
+
+    expect(applySuggestionToDocument("alpha beta gamma", selected, "delta")).toBe(
+      "alpha delta gamma"
+    );
+    expect(buildAiRequestContext("alpha beta gamma", selected, 3)).toEqual({
+      before: "ha ",
+      after: " ga"
+    });
+    expect(describeSelection(selected)).toBe("Selection 6-10 (4 chars)");
+  });
+});

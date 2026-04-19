@@ -7,14 +7,19 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types src/test.ts",
+    "pretest": "npm --workspace @swe-midterm/contracts run build",
+    "test": "vitest run",
+    "pretypecheck": "npm --workspace @swe-midterm/contracts run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@swe-midterm/contracts": "file:../../packages/contracts"
+    "@swe-midterm/contracts": "file:../../packages/contracts",
+    "quill": "^2.0.3"
   },
   "devDependencies": {
+    "jsdom": "^29.0.2",
     "typescript": "^5.6.3",
-    "vite": "^5.4.8"
+    "vite": "^5.4.8",
+    "vitest": "^4.1.4"
   }
 }

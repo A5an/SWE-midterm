@@ -1,3 +1,5 @@
+import Quill from "quill";
+
 import "./App.css";
 import {
   isAiHistoryResponse,
@@ -6,6 +8,7 @@ import {
   isCreateAiJobResponse,
   isDemoLoginResponse,
   isDocumentDetailResponse,
+  isDocumentListResponse,
   isDocumentMetadataResponse,
   isDocumentPermissionsResponse,
   isDocumentRestoreResponse,
@@ -16,12 +19,12 @@ import {
   type CollaborationParticipant,
   type CreateDocumentRequest,
   type DocumentDetailResponse,
+  type DocumentListItem,
   type DocumentPermissionEntry,
   type DocumentVersionSummary,
   type SharingRole
 } from "@swe-midterm/contracts";
 import {
-  applySuggestionToDocument,
   buildAiRequestContext,
   describeSelection,
   normalizeEditorSelection,
@@ -50,8 +53,16 @@ import {
   upsertPermissionEntry,
   type EffectiveDocumentRole
 } from "./document-ui.ts";
+import {
+  contentToEditorHtml,
+  contentToPreview,
+  editorHtmlToContent,
+  formatAutosaveLabel,
+  type AutosaveStateSnapshot
+} from "./document-model.ts";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
+const EMPTY_EDITOR_HTML = "<p><br></p>";
 
 interface PendingMutation {
   baseRevision: number;
@@ -76,9 +87,9 @@ interface ActiveAiJob {
 }
 
 interface UndoState {
-  appliedDocumentText: string;
+  appliedHtml: string;
   jobId: string;
-  previousText: string;
+  previousHtml: string;
   restoredText: string;
 }
 
@@ -94,12 +105,6 @@ const readJson = async (response: Response): Promise<unknown> => {
   }
 };
 
-const toParagraphText = (document: DocumentDetailResponse): string =>
-  document.content.content
-    .map((block) => (typeof block.text === "string" ? block.text : ""))
-    .join("\n\n")
-    .trim();
-
 const escapeHtml = (value: string): string =>
   value
     .replace(/&/g, "&amp;")
@@ -107,6 +112,62 @@ const escapeHtml = (value: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+
+const formatRelativeDate = (value: string): string => {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+};
+
+const normalizeEditorText = (value: string): string => value.replace(/\n$/u, "");
+
+const renderDocumentListMarkup = (
+  documents: DocumentListItem[],
+  currentDocumentId: string | null,
+  authReady: boolean
+): string => {
+  if (!authReady) {
+    return `<li class="document-list-empty">Sign in to load your dashboard documents.</li>`;
+  }
+
+  if (documents.length === 0) {
+    return `<li class="document-list-empty">No accessible documents yet. Create one to populate the dashboard list.</li>`;
+  }
+
+  return documents
+    .map((document) => {
+      const isActive = document.documentId === currentDocumentId;
+      return `
+        <li>
+          <button
+            class="document-card${isActive ? " document-card-active" : ""}"
+            data-document-id="${escapeHtml(document.documentId)}"
+            type="button"
+          >
+            <span class="document-card-top">
+              <strong>${escapeHtml(document.title)}</strong>
+              <span class="document-role-pill">${escapeHtml(document.effectiveRole)}</span>
+            </span>
+            <span class="document-card-meta">
+              <span>${escapeHtml(document.documentId)}</span>
+              <span>${escapeHtml(formatRelativeDate(document.updatedAt))}</span>
+            </span>
+            <span class="document-card-preview">${escapeHtml(document.preview || "No content yet.")}</span>
+          </button>
+        </li>
+      `;
+    })
+    .join("");
+};
 
 export const mountApp = (root: HTMLElement): void => {
   const initialApiBase =
@@ -118,11 +179,11 @@ export const mountApp = (root: HTMLElement): void => {
   root.innerHTML = `
     <div class="app-shell">
       <header class="hero">
-        <p class="eyebrow">Assignment 2 Collaboration + AI Baseline</p>
-        <h1>Authenticated Collaboration with Streaming AI Suggestions</h1>
+        <p class="eyebrow">Assignment 2 Core App Baseline</p>
+        <h1>Dashboard Documents, Rich Text, Autosave, Collaboration, and AI</h1>
         <p class="summary">
-          Create or load a document, collaborate through the shared editor, then invoke AI rewrite or summarize on a selection.
-          Suggestions stream progressively, can be canceled, compared, edited, accepted, rejected, undone, and reviewed in per-document history.
+          Sign in, create or reopen a document from the dashboard list, edit it with rich-text controls, and watch autosave state update in place.
+          Collaboration sessions and streaming AI suggestions still operate on the same loaded document.
         </p>
       </header>
 
@@ -234,47 +295,16 @@ export const mountApp = (root: HTMLElement): void => {
           <pre id="authProfileOutput" class="output">Protected profile will appear here after sign-in.</pre>
         </section>
       </section>
-
-      <div class="two-column">
-        <section class="panel">
-          <h2>Create Document</h2>
-          <form id="createForm" class="form-grid">
-            <label class="field-label" for="workspaceId">Workspace ID</label>
-            <input id="workspaceId" class="text-input" value="ws_123" required />
-
-            <label class="field-label" for="title">Title</label>
-            <input id="title" class="text-input" value="Realtime Collaboration Baseline" required />
-
-            <label class="field-label" for="paragraph">Initial Text</label>
-            <textarea id="paragraph" class="text-area" rows="5">Start editing here and open a second browser window to collaborate.</textarea>
-
-            <button type="submit" class="button button-primary">Create + Load</button>
-          </form>
-        </section>
-
-        <section class="panel">
-          <h2>Load Existing Document</h2>
-          <div class="form-grid">
-            <label class="field-label" for="documentId">Document ID</label>
-            <div class="load-row">
-              <input id="documentId" class="text-input" placeholder="doc_xxxxxxxx" />
-              <button id="loadButton" class="button button-secondary" type="button">Load</button>
-            </div>
-            <p class="hint">Use the same document ID in both browser windows.</p>
-          </div>
-        </section>
-      </div>
-
       <section class="panel">
         <h2>Demo Login</h2>
         <div class="three-column">
           <div class="form-grid">
             <label class="field-label" for="userId">User ID</label>
-            <input id="userId" class="text-input" value="usr_assanali" />
+            <input id="userId" class="text-input" value="usr_alaa" />
           </div>
           <div class="form-grid">
             <label class="field-label" for="password">Password</label>
-            <input id="password" class="text-input" type="password" value="demo-assanali" />
+            <input id="password" class="text-input" type="password" value="demo-alaa" />
           </div>
           <div class="button-row">
             <button id="loginButton" class="button button-primary" type="button">Sign In</button>
@@ -303,16 +333,76 @@ export const mountApp = (root: HTMLElement): void => {
         </div>
       </section>
 
+      <div class="two-column dashboard-grid">
+        <section class="panel">
+          <h2>Create Document</h2>
+          <form id="createForm" class="form-grid">
+            <label class="field-label" for="workspaceId">Workspace ID</label>
+            <input id="workspaceId" class="text-input" value="ws_123" required />
+
+            <label class="field-label" for="title">Title</label>
+            <input id="title" class="text-input" value="Sprint Notes" required />
+
+            <button type="submit" class="button button-primary">Create + Open</button>
+          </form>
+
+          <div class="form-grid load-grid">
+            <label class="field-label" for="documentId">Load By Document ID</label>
+            <div class="load-row">
+              <input id="documentId" class="text-input" placeholder="doc_xxxxxxxx" />
+              <button id="loadButton" class="button button-secondary" type="button">Load</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Dashboard Documents</h2>
+              <p class="hint panel-subtitle">Accessible documents sorted by most recent update.</p>
+            </div>
+            <button id="refreshDocumentsButton" class="button button-secondary" type="button">Refresh List</button>
+          </div>
+          <ul id="documentList" class="document-list">
+            <li class="document-list-empty">Sign in to load your dashboard documents.</li>
+          </ul>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="panel-header editor-heading-row">
+          <div>
+            <h2>Rich-text Editor</h2>
+            <p class="hint panel-subtitle">Baseline formatting supports headings, bold, italic, lists, and code blocks.</p>
+          </div>
+          <p id="autosaveState" class="autosave-state" data-state="idle">Autosave idle</p>
+        </div>
+
+        <div class="editor-toolbar" role="toolbar" aria-label="Rich-text formatting">
+          <button id="formatHeadingButton" class="toolbar-button" type="button" aria-pressed="false">Heading</button>
+          <button id="formatBoldButton" class="toolbar-button" type="button" aria-pressed="false">Bold</button>
+          <button id="formatItalicButton" class="toolbar-button" type="button" aria-pressed="false">Italic</button>
+          <button id="formatBulletButton" class="toolbar-button" type="button" aria-pressed="false">Bullets</button>
+          <button id="formatOrderedButton" class="toolbar-button" type="button" aria-pressed="false">Numbered</button>
+          <button id="formatCodeButton" class="toolbar-button" type="button" aria-pressed="false">Code Block</button>
+        </div>
+
+        <div id="editorHost" class="editor-host">
+          <div id="editorSurface" class="editor-surface"></div>
+        </div>
+        <p class="hint">Autosave runs after you pause typing. Join a collaboration session when you want live presence and cross-window sync.</p>
+      </section>
+
       <section class="panel">
         <h2>Collaboration Session</h2>
         <p class="hint">
           Session bootstrap requires the signed API access token from Demo Login. The server then
-          issues a short-lived WebSocket session token for the document.
+          issues a short-lived WebSocket session token for the document and syncs the same editor content live.
         </p>
-        <div class="button-row">
-            <button id="joinButton" class="button button-primary" type="button">Join Session</button>
-            <button id="disconnectButton" class="button button-ghost" type="button">Disconnect</button>
-            <button id="reconnectButton" class="button button-secondary" type="button">Reconnect</button>
+        <div class="button-row button-row-left">
+          <button id="joinButton" class="button button-primary" type="button">Join Session</button>
+          <button id="disconnectButton" class="button button-ghost" type="button">Disconnect</button>
+          <button id="reconnectButton" class="button button-secondary" type="button">Reconnect</button>
         </div>
 
         <div class="session-bar">
@@ -330,18 +420,11 @@ export const mountApp = (root: HTMLElement): void => {
           </div>
         </div>
 
-        <div class="two-column">
-          <div>
-            <h3>Online Users</h3>
-            <ul id="presenceList" class="presence-list">
-              <li class="presence-empty">Join a session to see presence.</li>
-            </ul>
-          </div>
-          <div>
-            <h3>Editor</h3>
-            <textarea id="collabEditor" class="editor" rows="14" disabled placeholder="Load a document, join a session, then type here."></textarea>
-            <p class="hint">If you disconnect, keep typing here. Reconnect will resync your latest local draft.</p>
-          </div>
+        <div>
+          <h3>Online Users</h3>
+          <ul id="presenceList" class="presence-list">
+            <li class="presence-empty">Join a session to see presence.</li>
+          </ul>
         </div>
       </section>
 
@@ -471,9 +554,10 @@ export const mountApp = (root: HTMLElement): void => {
   const createForm = root.querySelector<HTMLFormElement>("#createForm");
   const workspaceIdInput = root.querySelector<HTMLInputElement>("#workspaceId");
   const titleInput = root.querySelector<HTMLInputElement>("#title");
-  const paragraphInput = root.querySelector<HTMLTextAreaElement>("#paragraph");
   const documentIdInput = root.querySelector<HTMLInputElement>("#documentId");
   const loadButton = root.querySelector<HTMLButtonElement>("#loadButton");
+  const refreshDocumentsButton = root.querySelector<HTMLButtonElement>("#refreshDocumentsButton");
+  const documentList = root.querySelector<HTMLUListElement>("#documentList");
   const userIdInput = root.querySelector<HTMLInputElement>("#userId");
   const passwordInput = root.querySelector<HTMLInputElement>("#password");
   const loginButton = root.querySelector<HTMLButtonElement>("#loginButton");
@@ -481,6 +565,14 @@ export const mountApp = (root: HTMLElement): void => {
   const authState = root.querySelector<HTMLElement>("#authState");
   const authIdentity = root.querySelector<HTMLElement>("#authIdentity");
   const authWorkspaces = root.querySelector<HTMLElement>("#authWorkspaces");
+  const editorSurface = root.querySelector<HTMLElement>("#editorSurface");
+  const autosaveStateOutput = root.querySelector<HTMLElement>("#autosaveState");
+  const formatHeadingButton = root.querySelector<HTMLButtonElement>("#formatHeadingButton");
+  const formatBoldButton = root.querySelector<HTMLButtonElement>("#formatBoldButton");
+  const formatItalicButton = root.querySelector<HTMLButtonElement>("#formatItalicButton");
+  const formatBulletButton = root.querySelector<HTMLButtonElement>("#formatBulletButton");
+  const formatOrderedButton = root.querySelector<HTMLButtonElement>("#formatOrderedButton");
+  const formatCodeButton = root.querySelector<HTMLButtonElement>("#formatCodeButton");
   const joinButton = root.querySelector<HTMLButtonElement>("#joinButton");
   const disconnectButton = root.querySelector<HTMLButtonElement>("#disconnectButton");
   const reconnectButton = root.querySelector<HTMLButtonElement>("#reconnectButton");
@@ -488,7 +580,6 @@ export const mountApp = (root: HTMLElement): void => {
   const sessionState = root.querySelector<HTMLElement>("#sessionState");
   const revisionState = root.querySelector<HTMLElement>("#revisionState");
   const presenceList = root.querySelector<HTMLUListElement>("#presenceList");
-  const collabEditor = root.querySelector<HTMLTextAreaElement>("#collabEditor");
   const aiInstructions = root.querySelector<HTMLTextAreaElement>("#aiInstructions");
   const aiSelectionState = root.querySelector<HTMLElement>("#aiSelectionState");
   const rewriteButton = root.querySelector<HTMLButtonElement>("#rewriteButton");
@@ -543,9 +634,10 @@ export const mountApp = (root: HTMLElement): void => {
     !createForm ||
     !workspaceIdInput ||
     !titleInput ||
-    !paragraphInput ||
     !documentIdInput ||
     !loadButton ||
+    !refreshDocumentsButton ||
+    !documentList ||
     !userIdInput ||
     !passwordInput ||
     !loginButton ||
@@ -553,6 +645,14 @@ export const mountApp = (root: HTMLElement): void => {
     !authState ||
     !authIdentity ||
     !authWorkspaces ||
+    !editorSurface ||
+    !autosaveStateOutput ||
+    !formatHeadingButton ||
+    !formatBoldButton ||
+    !formatItalicButton ||
+    !formatBulletButton ||
+    !formatOrderedButton ||
+    !formatCodeButton ||
     !joinButton ||
     !disconnectButton ||
     !reconnectButton ||
@@ -560,7 +660,6 @@ export const mountApp = (root: HTMLElement): void => {
     !sessionState ||
     !revisionState ||
     !presenceList ||
-    !collabEditor ||
     !aiInstructions ||
     !aiSelectionState ||
     !rewriteButton ||
@@ -587,14 +686,25 @@ export const mountApp = (root: HTMLElement): void => {
     !statusOutput ||
     !documentOutput
   ) {
-    throw new Error("Failed to initialize collaboration UI.");
+    throw new Error("Failed to initialize document editor UI.");
   }
+
+  const quill = new Quill(editorSurface, {
+    modules: {
+      history: {
+        userOnly: true
+      }
+    },
+    placeholder: "Create or load a document to start writing."
+  });
 
   let currentDocument: DocumentDetailResponse | null = null;
   let currentServerRevision = 0;
+  let documentItems: DocumentListItem[] = [];
   let reconnectTimer: number | null = null;
   let sendTimer: number | null = null;
   let typingIdleTimer: number | null = null;
+  let autosaveTimer: number | null = null;
   let authSession:
     | {
         accessToken: string;
@@ -622,11 +732,22 @@ export const mountApp = (root: HTMLElement): void => {
   let aiHistory: AiHistoryRecord[] = [];
   let aiStream: EventSource | null = null;
   let lastAiUndo: UndoState | null = null;
+  let suppressEditorEvents = false;
+  let autosaveState: AutosaveStateSnapshot = { kind: "idle" };
   let ownerControlsAvailable = false;
   let editAccess: boolean | null = null;
   let documentRole: EffectiveDocumentRole = "unknown";
   let permissions: DocumentPermissionEntry[] = [];
   let versions: DocumentVersionSummary[] = [];
+
+  const toolbarButtons = {
+    bold: formatBoldButton,
+    bullet: formatBulletButton,
+    code: formatCodeButton,
+    heading: formatHeadingButton,
+    italic: formatItalicButton,
+    ordered: formatOrderedButton
+  };
 
   const setStatus = (message: string): void => {
     statusOutput.textContent = message;
@@ -648,6 +769,35 @@ export const mountApp = (root: HTMLElement): void => {
     }
 
     return headers;
+  };
+
+  const getEditorHtml = (): string => quill.root.innerHTML.trim() || EMPTY_EDITOR_HTML;
+
+  const getEditorPlainText = (): string => normalizeEditorText(quill.getText());
+
+  const setAutosaveState = (nextState: AutosaveStateSnapshot): void => {
+    autosaveState = nextState;
+    autosaveStateOutput.textContent = formatAutosaveLabel(nextState);
+    autosaveStateOutput.dataset.state = nextState.kind;
+  };
+
+  const clearAutosaveTimer = (): void => {
+    if (autosaveTimer !== null) {
+      window.clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+    }
+  };
+
+  const updateEditorAvailability = (): void => {
+    quill.enable(currentDocument !== null);
+
+    const editorReady = currentDocument !== null;
+    formatHeadingButton.disabled = !editorReady;
+    formatBoldButton.disabled = !editorReady;
+    formatItalicButton.disabled = !editorReady;
+    formatBulletButton.disabled = !editorReady;
+    formatOrderedButton.disabled = !editorReady;
+    formatCodeButton.disabled = !editorReady;
   };
 
   const setAuthLifecycleMessage = (message: string): void => {
@@ -812,6 +962,62 @@ export const mountApp = (root: HTMLElement): void => {
   const updateRevisionState = (revision: number): void => {
     currentServerRevision = revision;
     revisionState.textContent = String(revision);
+  };
+
+  const renderDocument = (document: DocumentDetailResponse | null): void => {
+    if (!document) {
+      documentOutput.textContent = "No document loaded yet.";
+      return;
+    }
+
+    documentOutput.textContent = JSON.stringify(
+      {
+        documentId: document.documentId,
+        workspaceId: document.workspaceId,
+        title: document.title,
+        ownerRole: document.ownerRole,
+        currentVersionId: document.currentVersionId,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
+        preview: contentToPreview(document.content)
+      },
+      null,
+      2
+    );
+  };
+
+  const updateDocumentItemFromDetail = (document: DocumentDetailResponse): void => {
+    const existingIndex = documentItems.findIndex((entry) => entry.documentId === document.documentId);
+    const nextItem: DocumentListItem = {
+      createdAt: document.createdAt,
+      documentId: document.documentId,
+      effectiveRole:
+        existingIndex >= 0 ? documentItems[existingIndex].effectiveRole : "owner",
+      preview: contentToPreview(document.content),
+      title: document.title,
+      updatedAt: document.updatedAt,
+      workspaceId: document.workspaceId
+    };
+
+    if (existingIndex >= 0) {
+      documentItems[existingIndex] = nextItem;
+    } else {
+      documentItems.unshift(nextItem);
+    }
+
+    documentItems.sort(
+      (left, right) =>
+        Date.parse(right.updatedAt) - Date.parse(left.updatedAt) ||
+        left.title.localeCompare(right.title)
+    );
+  };
+
+  const renderDocumentList = (): void => {
+    documentList.innerHTML = renderDocumentListMarkup(
+      documentItems,
+      currentDocument?.documentId ?? null,
+      authSession !== null
+    );
   };
 
   const updateAuthState = (): void => {
@@ -1174,39 +1380,16 @@ export const mountApp = (root: HTMLElement): void => {
     await loadDocumentById(payload.documentId);
   };
 
-  const renderDocument = (document: DocumentDetailResponse): void => {
-    documentOutput.textContent = JSON.stringify(
-      {
-        documentId: document.documentId,
-        workspaceId: document.workspaceId,
-        title: document.title,
-        ownerRole: document.ownerRole,
-        currentVersionId: document.currentVersionId,
-        createdAt: document.createdAt,
-        updatedAt: document.updatedAt,
-        contentText: toParagraphText(document)
-      },
-      null,
-      2
-    );
-  };
-
   const syncDocumentFromEditor = (): void => {
     if (!currentDocument) {
       return;
     }
 
-    currentDocument.content = {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          text: collabEditor.value
-        }
-      ]
-    };
+    currentDocument.content = editorHtmlToContent(getEditorHtml());
     currentDocument.updatedAt = new Date().toISOString();
     renderDocument(currentDocument);
+    updateDocumentItemFromDetail(currentDocument);
+    renderDocumentList();
   };
 
   const handleApiFailure = (prefix: string, payload: unknown): void => {
@@ -1281,16 +1464,39 @@ export const mountApp = (root: HTMLElement): void => {
       : "No active session";
   };
 
-  const setEditorEnabled = (enabled: boolean): void => {
-    collabEditor.disabled = !enabled;
-  };
-
   const updateConnectionState = (message: string): void => {
     connectionState.textContent = message;
   };
 
-  const currentSelection = (): EditorSelectionRange =>
-    normalizeEditorSelection(collabEditor.value, collabEditor.selectionStart, collabEditor.selectionEnd);
+  const currentSelection = (): EditorSelectionRange => {
+    const range = quill.getSelection();
+    const documentText = getEditorPlainText();
+
+    if (!range || range.length === 0) {
+      return normalizeEditorSelection(documentText, 0, documentText.length);
+    }
+
+    return normalizeEditorSelection(documentText, range.index, range.index + range.length);
+  };
+
+  const syncToolbarState = (): void => {
+    const range = quill.getSelection();
+    const format = range ? (quill.getFormat(range) as Record<string, unknown>) : {};
+    const states = {
+      bold: format.bold === true,
+      bullet: format.list === "bullet",
+      code: format["code-block"] === true,
+      heading: format.header === 2,
+      italic: format.italic === true,
+      ordered: format.list === "ordered"
+    };
+
+    for (const [key, button] of Object.entries(toolbarButtons)) {
+      const active = states[key as keyof typeof states];
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      button.dataset.active = active ? "true" : "false";
+    }
+  };
 
   const renderAiState = (): void => {
     const selection = currentSelection();
@@ -1404,11 +1610,111 @@ export const mountApp = (root: HTMLElement): void => {
   };
 
   const syncSelectionStatus = (): void => {
+    syncToolbarState();
     renderAiState();
   };
 
-  const syncEditorAfterProgrammaticChange = (): void => {
+  const clearSendTimer = (): void => {
+    if (sendTimer !== null) {
+      window.clearTimeout(sendTimer);
+      sendTimer = null;
+    }
+  };
+
+  const clearTypingTimer = (): void => {
+    if (typingIdleTimer !== null) {
+      window.clearTimeout(typingIdleTimer);
+      typingIdleTimer = null;
+    }
+  };
+
+  const closeSocket = (): void => {
+    if (socket) {
+      socket.close();
+      socket = null;
+    }
+  };
+
+  const applyEditorHtml = (html: string): void => {
+    suppressEditorEvents = true;
+    try {
+      (quill as unknown as {
+        clipboard: {
+          dangerouslyPasteHTML: (index: number, html: string, source?: string) => void;
+        };
+        setText: (text: string, source?: string) => void;
+      }).setText("", "silent");
+      (quill as unknown as {
+        clipboard: {
+          dangerouslyPasteHTML: (index: number, html: string, source?: string) => void;
+        };
+      }).clipboard.dangerouslyPasteHTML(0, html || EMPTY_EDITOR_HTML, "silent");
+    } finally {
+      suppressEditorEvents = false;
+    }
+    syncToolbarState();
+  };
+
+  const markDocumentDirty = (): void => {
+    if (!currentDocument) {
+      return;
+    }
+
     syncDocumentFromEditor();
+    setAutosaveState({ kind: "dirty" });
+    clearAutosaveTimer();
+    autosaveTimer = window.setTimeout(() => {
+      autosaveTimer = null;
+      void persistDocument();
+    }, 700);
+  };
+
+  const queueOrSendLatestText = (baseRevision = currentServerRevision): void => {
+    if (!currentDocument) {
+      return;
+    }
+
+    if (!sessionInfo) {
+      syncDocumentFromEditor();
+      return;
+    }
+
+    const latestMarkup = getEditorHtml();
+    pendingMutation =
+      pendingMutation?.text === latestMarkup
+        ? pendingMutation
+        : {
+            baseRevision,
+            clientSeq: nextClientSeq++,
+            mutationId: crypto.randomUUID(),
+            text: latestMarkup
+          };
+    pendingMutation.baseRevision = baseRevision;
+    pendingMutation.text = latestMarkup;
+    syncDocumentFromEditor();
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: "client.update",
+          sessionId: sessionInfo.sessionId,
+          clientSeq: pendingMutation.clientSeq,
+          mutationId: pendingMutation.mutationId,
+          baseRevision: pendingMutation.baseRevision,
+          text: pendingMutation.text
+        })
+      );
+      setStatus(
+        `Sent local draft ${pendingMutation.mutationId.slice(0, 8)} at base revision ${pendingMutation.baseRevision}.`
+      );
+    } else {
+      setStatus("Connection offline. Local edits are queued and will resync on reconnect.");
+      updateConnectionState("Offline with local draft");
+    }
+  };
+
+  const syncEditorAfterProgrammaticChange = (): void => {
+    markDocumentDirty();
     if (sessionInfo) {
       queueOrSendLatestText();
     }
@@ -1426,24 +1732,37 @@ export const mountApp = (root: HTMLElement): void => {
       return;
     }
 
-    if (collabEditor.value !== currentAiJob.sourceText) {
+    if (getEditorPlainText() !== currentAiJob.sourceText) {
       setStatus("AI suggestion is stale because the document changed after generation. Regenerate on the latest text.");
       return;
     }
 
     const replacementText = aiSuggestion.value;
-    const previousText = collabEditor.value;
-    const nextText = applySuggestionToDocument(previousText, currentAiJob.selection, replacementText);
+    const previousHtml = getEditorHtml();
+
+    suppressEditorEvents = true;
+    try {
+      quill.deleteText(
+        currentAiJob.selection.start,
+        currentAiJob.selection.end - currentAiJob.selection.start,
+        "silent"
+      );
+      quill.insertText(currentAiJob.selection.start, replacementText, "silent");
+      quill.setSelection(currentAiJob.selection.start + replacementText.length, 0, "silent");
+    } finally {
+      suppressEditorEvents = false;
+    }
+
+    const appliedHtml = getEditorHtml();
     lastAiUndo = {
+      appliedHtml,
       jobId: currentAiJob.jobId,
-      appliedDocumentText: nextText,
-      previousText,
+      previousHtml,
       restoredText: currentAiJob.selection.text
     };
-    collabEditor.value = nextText;
-    syncEditorAfterProgrammaticChange();
     currentAiJob.editMode = false;
     currentAiJob.outputText = replacementText;
+    syncEditorAfterProgrammaticChange();
     await recordAiDecision(decision, replacementText);
     renderAiState();
     setStatus(
@@ -1459,12 +1778,12 @@ export const mountApp = (root: HTMLElement): void => {
       return;
     }
 
-    if (collabEditor.value !== lastAiUndo.appliedDocumentText) {
+    if (getEditorHtml() !== lastAiUndo.appliedHtml) {
       setStatus("Undo blocked because the document changed after the AI suggestion was applied.");
       return;
     }
 
-    collabEditor.value = lastAiUndo.previousText;
+    applyEditorHtml(lastAiUndo.previousHtml);
     syncEditorAfterProgrammaticChange();
     await recordAiDecision("undone", lastAiUndo.restoredText);
     lastAiUndo = null;
@@ -1497,8 +1816,6 @@ export const mountApp = (root: HTMLElement): void => {
       }
 
       const typedPayload = payload as {
-        canceledAt?: string;
-        completedAt?: string;
         errorMessage?: string;
         outputText?: string;
         status?: AiJobStatus;
@@ -1595,6 +1912,7 @@ export const mountApp = (root: HTMLElement): void => {
     }
 
     const selection = currentSelection();
+    const documentText = getEditorPlainText();
     setStatus(`Starting AI ${feature} for ${describeSelection(selection)}...`);
 
     const response = await fetch(
@@ -1605,7 +1923,7 @@ export const mountApp = (root: HTMLElement): void => {
         body: JSON.stringify({
           feature,
           selection,
-          context: buildAiRequestContext(collabEditor.value, selection),
+          context: buildAiRequestContext(documentText, selection),
           instructions: aiInstructions.value.trim() || null
         })
       }
@@ -1631,7 +1949,7 @@ export const mountApp = (root: HTMLElement): void => {
       jobId: payload.jobId,
       outputText: "",
       selection,
-      sourceText: collabEditor.value,
+      sourceText: documentText,
       status: payload.status,
       streamToken: payload.streamToken,
       streamUrl: payload.streamUrl
@@ -1692,27 +2010,6 @@ export const mountApp = (root: HTMLElement): void => {
     }
   };
 
-  const clearSendTimer = (): void => {
-    if (sendTimer !== null) {
-      window.clearTimeout(sendTimer);
-      sendTimer = null;
-    }
-  };
-
-  const clearTypingTimer = (): void => {
-    if (typingIdleTimer !== null) {
-      window.clearTimeout(typingIdleTimer);
-      typingIdleTimer = null;
-    }
-  };
-
-  const closeSocket = (): void => {
-    if (socket) {
-      socket.close();
-      socket = null;
-    }
-  };
-
   const sendPresence = (activity: CollaborationParticipant["activity"]): void => {
     if (!socket || socket.readyState !== WebSocket.OPEN || !sessionInfo) {
       return;
@@ -1725,52 +2022,6 @@ export const mountApp = (root: HTMLElement): void => {
         activity
       })
     );
-  };
-
-  const sendMutation = (mutation: PendingMutation): void => {
-    if (!socket || socket.readyState !== WebSocket.OPEN || !sessionInfo) {
-      return;
-    }
-
-    socket.send(
-      JSON.stringify({
-        type: "client.update",
-        sessionId: sessionInfo.sessionId,
-        clientSeq: mutation.clientSeq,
-        mutationId: mutation.mutationId,
-        baseRevision: mutation.baseRevision,
-        text: mutation.text
-      })
-    );
-  };
-
-  const buildPendingMutation = (baseRevision: number): PendingMutation => ({
-    baseRevision,
-    clientSeq: nextClientSeq++,
-    mutationId: crypto.randomUUID(),
-    text: collabEditor.value
-  });
-
-  const queueOrSendLatestText = (baseRevision = currentServerRevision): void => {
-    if (!sessionInfo) {
-      syncDocumentFromEditor();
-      return;
-    }
-
-    pendingMutation = pendingMutation?.text === collabEditor.value ? pendingMutation : buildPendingMutation(baseRevision);
-    pendingMutation.baseRevision = baseRevision;
-    pendingMutation.text = collabEditor.value;
-    syncDocumentFromEditor();
-
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      sendMutation(pendingMutation);
-      setStatus(
-        `Sent local draft ${pendingMutation.mutationId.slice(0, 8)} at base revision ${pendingMutation.baseRevision}.`
-      );
-    } else {
-      setStatus("Connection offline. Local edits are queued and will resync on reconnect.");
-      updateConnectionState("Offline with local draft");
-    }
   };
 
   const scheduleReconnect = (): void => {
@@ -1833,21 +2084,21 @@ export const mountApp = (root: HTMLElement): void => {
         updateRevisionState(bootstrap.serverRevision);
 
         const hadLocalDraft =
-          hasConnectedOnce && (pendingMutation !== null || collabEditor.value !== bootstrap.text);
+          hasConnectedOnce && (pendingMutation !== null || getEditorHtml() !== bootstrap.text);
 
         if (!hadLocalDraft) {
-          collabEditor.value = bootstrap.text;
+          applyEditorHtml(bootstrap.text || EMPTY_EDITOR_HTML);
           syncDocumentFromEditor();
         } else {
-          setStatus("Reconnected with a local draft. Resyncing latest text now.");
+          setStatus("Reconnected with a local draft. Resyncing latest editor state now.");
         }
 
         hasConnectedOnce = true;
 
         if (pendingMutation) {
           pendingMutation.baseRevision = bootstrap.serverRevision;
-          sendMutation(pendingMutation);
-        } else if (collabEditor.value !== bootstrap.text) {
+          queueOrSendLatestText(bootstrap.serverRevision);
+        } else if (getEditorHtml() !== bootstrap.text) {
           queueOrSendLatestText(bootstrap.serverRevision);
         }
 
@@ -1869,7 +2120,7 @@ export const mountApp = (root: HTMLElement): void => {
         };
 
         updateRevisionState(ack.serverRevision);
-        collabEditor.value = ack.text;
+        applyEditorHtml(ack.text || EMPTY_EDITOR_HTML);
         syncDocumentFromEditor();
 
         if (pendingMutation && pendingMutation.mutationId === ack.mutationId) {
@@ -1891,7 +2142,7 @@ export const mountApp = (root: HTMLElement): void => {
         };
 
         updateRevisionState(update.serverRevision);
-        collabEditor.value = update.text;
+        applyEditorHtml(update.text || EMPTY_EDITOR_HTML);
         syncDocumentFromEditor();
         syncSelectionStatus();
         setStatus(
@@ -1911,8 +2162,9 @@ export const mountApp = (root: HTMLElement): void => {
 
         pendingMutation = null;
         updateRevisionState(reload.serverRevision);
-        collabEditor.value = reload.text;
+        applyEditorHtml(reload.text || EMPTY_EDITOR_HTML);
         syncDocumentFromEditor();
+        syncSelectionStatus();
         setStatus(
           `Document head changed (${reload.reason}). Reloading version ${reload.newVersionId}.`
         );
@@ -1944,7 +2196,7 @@ export const mountApp = (root: HTMLElement): void => {
     });
   };
 
-  const resetCollaboration = (clearEditor: boolean): void => {
+  const resetCollaboration = (): void => {
     manualDisconnect = true;
     clearReconnectTimer();
     clearSendTimer();
@@ -1958,10 +2210,36 @@ export const mountApp = (root: HTMLElement): void => {
     updateSessionState();
     updateRevisionState(0);
     resetPresence();
-    setEditorEnabled(false);
-    if (clearEditor) {
-      collabEditor.value = "";
+  };
+
+  const refreshDocumentList = async (): Promise<void> => {
+    if (!authSession) {
+      documentItems = [];
+      renderDocumentList();
+      return;
     }
+
+    const response = await fetch(`${currentApiBase()}/v1/documents`, {
+      headers: currentAuthHeaders()
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("Dashboard list failed", payload);
+      documentItems = [];
+      renderDocumentList();
+      return;
+    }
+
+    if (!isDocumentListResponse(payload)) {
+      setStatus("Dashboard list failed: backend response does not match expected list contract.");
+      documentItems = [];
+      renderDocumentList();
+      return;
+    }
+
+    documentItems = (payload as { documents: DocumentListItem[] }).documents;
+    renderDocumentList();
   };
 
   const loadDocumentById = async (documentId: string): Promise<void> => {
@@ -1989,26 +2267,126 @@ export const mountApp = (root: HTMLElement): void => {
 
     currentDocument = payload;
     documentIdInput.value = payload.documentId;
-    collabEditor.value = toParagraphText(payload);
+    applyEditorHtml(contentToEditorHtml(payload.content));
     renderDocument(payload);
-    setStatus(`Loaded ${payload.documentId} successfully.`);
+    setAutosaveState({ kind: "saved", savedAt: payload.updatedAt });
+    updateEditorAvailability();
+    syncSelectionStatus();
+    updateDocumentItemFromDetail(payload);
+    renderDocumentList();
+
+    if (sessionInfo && sessionInfo.documentId !== payload.documentId) {
+      resetCollaboration();
+    }
 
     if (previousDocumentId !== payload.documentId) {
       resetDocumentAdminState();
     }
 
     if (!sessionInfo || sessionInfo.documentId !== payload.documentId) {
-      resetCollaboration(false);
-      collabEditor.value = toParagraphText(payload);
       editAccess = null;
     }
 
     resetAiState();
-    syncSelectionStatus();
     updateDocumentRoleState();
     await refreshPermissions();
     await refreshVersions();
     await refreshAiHistory();
+    setStatus(`Loaded ${payload.documentId} successfully.`);
+  };
+
+  const persistDocument = async (): Promise<void> => {
+    if (!currentDocument) {
+      setAutosaveState({ kind: "idle" });
+      return;
+    }
+
+    if (!authSession) {
+      setAutosaveState({ kind: "error", message: "sign in to save changes" });
+      return;
+    }
+
+    syncDocumentFromEditor();
+    setAutosaveState({ kind: "saving" });
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}`,
+      {
+        method: "PATCH",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify({
+          title: currentDocument.title,
+          content: currentDocument.content
+        })
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("Autosave failed", payload);
+      const message = isApiErrorEnvelope(payload) ? payload.error.message : "Unexpected response";
+      setAutosaveState({ kind: "error", message });
+      return;
+    }
+
+    if (!isDocumentDetailResponse(payload)) {
+      setStatus("Autosave failed: backend response does not match expected document detail contract.");
+      setAutosaveState({ kind: "error", message: "contract mismatch" });
+      return;
+    }
+
+    currentDocument = payload;
+    updateDocumentItemFromDetail(payload);
+    renderDocument(payload);
+    renderDocumentList();
+    setAutosaveState({ kind: "saved", savedAt: payload.updatedAt });
+  };
+
+  const applyBlockFormat = (
+    formatName: "header" | "list" | "code-block",
+    activeValue: unknown,
+    nextValue: unknown
+  ): void => {
+    if (!currentDocument) {
+      return;
+    }
+
+    const range = quill.getSelection(true) ?? {
+      index: Math.max(0, quill.getLength() - 1),
+      length: 0
+    };
+    const currentFormat = quill.getFormat(range) as Record<string, unknown>;
+    const shouldDisable = currentFormat[formatName] === activeValue;
+    (quill as unknown as {
+      formatLine: (
+        index: number,
+        length: number,
+        name: string,
+        value: unknown,
+        source?: string
+      ) => void;
+    }).formatLine(
+      range.index,
+      Math.max(range.length, 1),
+      formatName,
+      shouldDisable ? false : nextValue,
+      "user"
+    );
+    syncToolbarState();
+  };
+
+  const applyInlineFormat = (formatName: "bold" | "italic"): void => {
+    if (!currentDocument) {
+      return;
+    }
+
+    const range = quill.getSelection(true) ?? {
+      index: Math.max(0, quill.getLength() - 1),
+      length: 0
+    };
+    const currentFormat = quill.getFormat(range) as Record<string, unknown>;
+    quill.format(formatName, currentFormat[formatName] !== true, "user");
+    syncToolbarState();
   };
 
   authLoginRouteButton.addEventListener("click", () => {
@@ -2110,15 +2488,7 @@ export const mountApp = (root: HTMLElement): void => {
       workspaceId: workspaceIdInput.value.trim(),
       title: titleInput.value.trim(),
       templateId: null,
-      initialContent: {
-        type: "doc",
-        content: [
-          {
-            type: "paragraph",
-            text: paragraphInput.value
-          }
-        ]
-      }
+      initialContent: editorHtmlToContent(EMPTY_EDITOR_HTML)
     };
 
     setStatus("Creating document...");
@@ -2144,10 +2514,26 @@ export const mountApp = (root: HTMLElement): void => {
     documentIdInput.value = payload.documentId;
     setStatus(`Created ${payload.documentId}. Loading full detail...`);
     await loadDocumentById(payload.documentId);
+    await refreshDocumentList();
   });
 
   loadButton.addEventListener("click", async () => {
     await loadDocumentById(documentIdInput.value);
+  });
+
+  refreshDocumentsButton.addEventListener("click", async () => {
+    await refreshDocumentList();
+  });
+
+  documentList.addEventListener("click", async (event) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const button = target?.closest<HTMLButtonElement>("[data-document-id]");
+
+    if (!button?.dataset.documentId) {
+      return;
+    }
+
+    await loadDocumentById(button.dataset.documentId);
   });
 
   loginButton.addEventListener("click", async () => {
@@ -2185,10 +2571,10 @@ export const mountApp = (root: HTMLElement): void => {
     resetDocumentAdminState();
 
     if (sessionInfo) {
-      resetCollaboration(false);
-      collabEditor.value = currentDocument ? toParagraphText(currentDocument) : collabEditor.value;
+      resetCollaboration();
     }
 
+    await refreshDocumentList();
     if (currentDocument) {
       await loadDocumentById(currentDocument.documentId);
     } else {
@@ -2205,11 +2591,12 @@ export const mountApp = (root: HTMLElement): void => {
     updateAuthState();
     resetDocumentAdminState();
     if (sessionInfo) {
-      resetCollaboration(false);
-      collabEditor.value = currentDocument ? toParagraphText(currentDocument) : collabEditor.value;
+      resetCollaboration();
     }
+    documentItems = [];
+    renderDocumentList();
     resetAiState();
-    setStatus("Signed out. Sign in again before starting a collaboration session or AI request.");
+    setStatus("Signed out. Sign in again before saving, opening dashboard documents, or starting collaboration.");
   });
 
   joinButton.addEventListener("click", async () => {
@@ -2258,7 +2645,6 @@ export const mountApp = (root: HTMLElement): void => {
     updateDocumentRoleState();
     updateSessionState();
     updateRevisionState(payload.serverRevision);
-    setEditorEnabled(true);
     renderPresence(payload.presence);
     if (!currentDocument || currentDocument.documentId !== payload.documentId) {
       await loadDocumentById(payload.documentId);
@@ -2276,8 +2662,7 @@ export const mountApp = (root: HTMLElement): void => {
     clearReconnectTimer();
     closeSocket();
     updateConnectionState("Disconnected");
-    setEditorEnabled(true);
-    setStatus("Disconnected. Keep typing locally, then click reconnect to resync.");
+    setStatus("Disconnected. Keep editing locally, then click reconnect to resync.");
   });
 
   reconnectButton.addEventListener("click", () => {
@@ -2290,8 +2675,12 @@ export const mountApp = (root: HTMLElement): void => {
     connectWebSocket(true);
   });
 
-  collabEditor.addEventListener("input", () => {
-    syncDocumentFromEditor();
+  quill.on("text-change", (_delta, _oldDelta, source) => {
+    if (suppressEditorEvents || source !== "user") {
+      return;
+    }
+
+    markDocumentDirty();
     syncSelectionStatus();
 
     if (!sessionInfo) {
@@ -2312,9 +2701,28 @@ export const mountApp = (root: HTMLElement): void => {
     }, 180);
   });
 
-  collabEditor.addEventListener("select", syncSelectionStatus);
-  collabEditor.addEventListener("click", syncSelectionStatus);
-  collabEditor.addEventListener("keyup", syncSelectionStatus);
+  quill.on("selection-change", () => {
+    syncSelectionStatus();
+  });
+
+  formatHeadingButton.addEventListener("click", () => {
+    applyBlockFormat("header", 2, 2);
+  });
+  formatBoldButton.addEventListener("click", () => {
+    applyInlineFormat("bold");
+  });
+  formatItalicButton.addEventListener("click", () => {
+    applyInlineFormat("italic");
+  });
+  formatBulletButton.addEventListener("click", () => {
+    applyBlockFormat("list", "bullet", "bullet");
+  });
+  formatOrderedButton.addEventListener("click", () => {
+    applyBlockFormat("list", "ordered", "ordered");
+  });
+  formatCodeButton.addEventListener("click", () => {
+    applyBlockFormat("code-block", true, true);
+  });
 
   shareForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2408,33 +2816,20 @@ export const mountApp = (root: HTMLElement): void => {
     await undoLastAiApply();
   });
 
-  renderDocument({
-    documentId: "not-loaded",
-    workspaceId: "not-loaded",
-    title: "No document loaded",
-    ownerRole: "owner",
-    currentVersionId: "ver_000",
-    createdAt: new Date(0).toISOString(),
-    updatedAt: new Date(0).toISOString(),
-    content: {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          text: ""
-        }
-      ]
-    }
-  });
-  resetCollaboration(true);
+  applyEditorHtml(EMPTY_EDITOR_HTML);
+  renderDocument(null);
+  renderDocumentList();
+  resetCollaboration();
   updateAuthState();
+  updateEditorAvailability();
+  setAutosaveState({ kind: "idle" });
   applyFastapiSession(null, {
     persist: false
   });
   renderAuthRoute();
-  documentOutput.textContent = "No document loaded yet.";
   renderAiHistory();
   renderAiState();
   resetDocumentAdminState();
+  syncToolbarState();
   void restoreFastapiSession("Checking for a saved auth session...");
 };

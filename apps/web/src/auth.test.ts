@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { describe, it } from "vitest";
 import {
   AUTH_SESSION_STORAGE_KEY,
   buildAuthRouteHash,
@@ -177,12 +178,32 @@ async function testApiErrorGuard(): Promise<void> {
   );
 }
 
-await testPersistenceRoundTrip();
-await testRouteParsing();
-await testLoginEnvelope();
-await testRestoreSessionViaProtectedProfile();
-await testRestoreSessionRefreshesExpiredAccessToken();
-await testRestoreSessionClearsExpiredRefreshToken();
-await testApiErrorGuard();
+describe("frontend auth helpers", () => {
+  it("persists and clears stored sessions", async () => {
+    await testPersistenceRoundTrip();
+  });
 
-console.log("frontend-auth: persistence, refresh, and protected-route helpers passed");
+  it("parses hash routes", async () => {
+    await testRouteParsing();
+  });
+
+  it("maps the login envelope into a persisted session", async () => {
+    await testLoginEnvelope();
+  });
+
+  it("restores a valid saved session through the protected profile", async () => {
+    await testRestoreSessionViaProtectedProfile();
+  });
+
+  it("refreshes expired access tokens during restore", async () => {
+    await testRestoreSessionRefreshesExpiredAccessToken();
+  });
+
+  it("clears sessions when both tokens are expired", async () => {
+    await testRestoreSessionClearsExpiredRefreshToken();
+  });
+
+  it("recognizes the FastAPI error envelope", async () => {
+    await testApiErrorGuard();
+  });
+});

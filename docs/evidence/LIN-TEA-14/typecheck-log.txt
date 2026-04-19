@@ -6,6 +6,7 @@
 > @swe-midterm/contracts@0.1.0 typecheck
 > tsc -p tsconfig.json --noEmit
 
+
 > @swe-midterm/api@0.1.0 pretypecheck
 > npm --workspace @swe-midterm/contracts run build
 
@@ -18,5 +19,14 @@
 > tsc -p tsconfig.json --noEmit
 
 
+> @swe-midterm/web@0.1.0 pretypecheck
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
 > @swe-midterm/web@0.1.0 typecheck
 > tsc -p tsconfig.json --noEmit
+

@@ -6,6 +6,8 @@ This PoC demonstrates:
 - A working frontend (`apps/web`)
 - A working backend API (`apps/api`)
 - Authenticated document create/load with shared API contracts
+- Dashboard document list with clickable open/load actions
+- Rich-text editor baseline with headings, bold, italic, lists, code blocks, and autosave status
 - Document-level RBAC + sharing API (`owner` / `editor` / `viewer`)
 - Document version history list/fetch/restore API with immutable snapshots
 - Role-aware sharing controls and version restore UI in `apps/web`
