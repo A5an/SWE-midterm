@@ -3,7 +3,7 @@
 - Linear issue: `LIN-TEA-8`
 - Branch used in this workspace: `feat/LIN-TEA-8-fastapi-skeleton`
 - Current PR: `https://github.com/A5an/SWE-midterm/pull/3`
-- Current branch head pulled for review: `de3860d5ac7aaf4bdba31cccd0368053bcd4d013`
+- Current branch head pulled for review: `6636166c8ac78485a1b35d8bc67c83f37c3e9f44`
 
 ## What changed and why
 
