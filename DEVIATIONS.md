@@ -1,6 +1,6 @@
 # Assignment 1 to Assignment 2 Deviations
 
-Last updated: 2026-04-17
+Last updated: 2026-04-19
 
 ## Why this file exists
 Assignment 2 explicitly requires documenting all differences between the Assignment 1 design and final implementation.
@@ -22,6 +22,7 @@ Rule: no silent deviations.
 | D-004 | implemented | Part 3 planned F1 by 2026-04-10 and F2 by 2026-04-14 | Repository remained PoC-level beyond those milestone dates | Delivery slip from original schedule | Compromise (schedule slip) | Raises rubric risk unless recovered with explicit replan and evidence discipline | Team lead | 2026-04-14 | `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:169-171`; `README.md:11-14` |
 | D-005 | implemented | A1 architecture models full collaboration + AI containers and flows | Current codebase still has PoC-only endpoints with placeholder collaboration and AI services | A1 Part 4 PoC intentionally focused on API contract skeleton | Neutral for A1; high risk for A2 if not closed quickly | Direct impact on Core/Collab/AI rubric bands until implementation catches up | Assanali, Dachi | 2026-04-16 | `README.md:11-14`; `apps/collab/README.md:3-8`; `apps/ai-worker/README.md:3-8` |
 | D-006 | implemented | Part 2 container design separates collaboration into `apps/collab` | Assignment 2 baseline collaboration currently runs inside `apps/api` with an in-memory room model and manual WebSocket transport | Keeps the current repo runnable with one backend process while delivering baseline WebSocket auth, presence, and reconnect first | Compromise (temporary deployment simplification) | Baseline collaboration acceptance is met, but service isolation and independent scaling are deferred | Assanali | 2026-04-17 | `apps/api/src/server.ts`; `apps/api/src/contract-test.ts`; `apps/web/src/App.ts`; `apps/collab/README.md`; `docs/evidence/LIN-TEA-16/summary.md` |
+| D-007 | implemented | Part 3 review/ownership plan assumes normal reviewer availability and area-based primary/secondary execution | During Assignment 2 deadline recovery, available teammates reviewed blocked work and took over waiting tasks when original owners/reviewers were not delivering in time | Fixed submission deadline and uneven team throughput made the original review/ownership flow too slow for baseline completion | Compromise (process recovery) | Preserved PR/evidence discipline while allowing blocked baseline work to continue without waiting on unavailable reviewers | Team lead | 2026-04-19 | `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:12-19`; `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:79-88`; `docs/project-management/Part3_Project_Management_and_Team_Collaboration.md:159`; `docs/project-management/Assignment2_Implementation_Plan.md:12-16` |
 
 ## Schedule Deviation Details (Rebaseline on 2026-04-14)
 
