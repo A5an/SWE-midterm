@@ -1,0 +1,94 @@
+Owner login:
+{
+  "status": 200,
+  "body": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlblVzZSI6ImFwaV9hY2Nlc3MiLCJzdWIiOiJ1c3JfYXNzYW5hbGkiLCJuYW1lIjoiQXNzYW5hbGkiLCJ3b3Jrc3BhY2VJZHMiOlsid3NfMTIzIl0sImlhdCI6MTc3NjYxNDg3MCwiZXhwIjoxNzc2NjQzNjcwfQ.NNDhAPzW-vA0RhkheY95scXKEEAK2ZcDgHgg_YiPuu4",
+    "userId": "usr_assanali",
+    "displayName": "Assanali",
+    "workspaceIds": [
+      "ws_123"
+    ],
+    "issuedAt": "2026-04-19T16:07:50.000Z",
+    "expiresAt": "2026-04-20T00:07:50.000Z"
+  }
+}
+
+Viewer login:
+{
+  "status": 200,
+  "body": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlblVzZSI6ImFwaV9hY2Nlc3MiLCJzdWIiOiJ1c3Jfdmlld2VyIiwibmFtZSI6IlZpZXdlciIsIndvcmtzcGFjZUlkcyI6WyJ3c19vdGhlciJdLCJpYXQiOjE3NzY2MTQ4NzAsImV4cCI6MTc3NjY0MzY3MH0.hEt6ZIw545u2ucscW3UK-WMQYaNpQkircZEEjdohRUU",
+    "userId": "usr_viewer",
+    "displayName": "Viewer",
+    "workspaceIds": [
+      "ws_other"
+    ],
+    "issuedAt": "2026-04-19T16:07:50.000Z",
+    "expiresAt": "2026-04-20T00:07:50.000Z"
+  }
+}
+
+Create document:
+{
+  "status": 201,
+  "body": {
+    "documentId": "doc_93492226",
+    "workspaceId": "ws_123",
+    "title": "Forbidden edit proof",
+    "ownerRole": "owner",
+    "currentVersionId": "ver_001",
+    "createdAt": "2026-04-19T16:07:50.964Z"
+  }
+}
+
+Share viewer by email:
+{
+  "status": 201,
+  "body": {
+    "documentId": "doc_93492226",
+    "permission": {
+      "shareId": "shr_f9bcd3b1",
+      "source": "share",
+      "userId": "usr_viewer",
+      "email": "viewer@demo.local",
+      "displayName": "Viewer",
+      "permissionLevel": "viewer"
+    }
+  }
+}
+
+Viewer load document:
+{
+  "status": 200,
+  "body": {
+    "documentId": "doc_93492226",
+    "workspaceId": "ws_123",
+    "title": "Forbidden edit proof",
+    "ownerRole": "owner",
+    "currentVersionId": "ver_001",
+    "createdAt": "2026-04-19T16:07:50.964Z",
+    "content": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "paragraph",
+          "text": "Owner-created document for viewer denial proof."
+        }
+      ]
+    },
+    "updatedAt": "2026-04-19T16:07:50.964Z"
+  }
+}
+
+Viewer PATCH document (expected 403):
+{
+  "status": 403,
+  "body": {
+    "error": {
+      "code": "AUTHZ_FORBIDDEN",
+      "message": "User 'usr_viewer' cannot edit document 'doc_93492226'.",
+      "retryable": false,
+      "requestId": "req_41a080bc-bc5"
+    }
+  }
+}

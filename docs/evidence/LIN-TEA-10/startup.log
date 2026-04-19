@@ -1,0 +1,13 @@
+
+> @swe-midterm/api@0.1.0 prestart
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/api@0.1.0 start
+> node --experimental-strip-types src/server.ts
+
+API listening on http://localhost:4010
