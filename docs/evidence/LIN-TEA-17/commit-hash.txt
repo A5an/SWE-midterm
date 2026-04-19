@@ -1,2 +1,2 @@
-Implementation anchor commit: ada8059408917da3d6883fee427871d7e3a7d2a7
-Purpose: review-fix commit that tightened AI job ownership/decision integrity, switched AI requests to selection-first scope, and required an active collaboration session before AI apply flows.
+Implementation anchor commit: 19bdbf588ddb490e66a377bb4e6e95a671b16635
+Purpose: final review-fix commit that made AI decisions terminal, preserved the single accepted/edited -> undone transition, and refreshed the passing evidence logs.
