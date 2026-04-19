@@ -1,0 +1,6 @@
+Implementation commit: `f949c66`
+Branch: `feat/LIN-TEA-15-sharing-role-version-ui`
+
+Note:
+- This is the pushed implementation commit for the current LIN-TEA-15 branch state before PR creation.
+- Update `pr-link.txt` after the PR is opened.

@@ -1,0 +1,11 @@
+
+> @swe-midterm/web@0.1.0 dev
+> vite --host 127.0.0.1 --port 4173
+
+
+  VITE v5.4.21  ready in 72 ms
+
+  ➜  Local:   http://127.0.0.1:4173/
+  ➜  press h + enter to show help
+12:15:52 AM [vite] page reload /Users/assanali.aukenov/Projects/SWE-midterm/packages/contracts/dist/index.js
+12:15:52 AM [vite] page reload /Users/assanali.aukenov/Projects/SWE-midterm/packages/contracts/dist/index.js

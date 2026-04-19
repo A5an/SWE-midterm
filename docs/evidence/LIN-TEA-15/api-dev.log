@@ -1,0 +1,21 @@
+
+> swe-midterm@0.1.0 dev:api
+> npm --workspace @swe-midterm/api run dev
+
+
+> @swe-midterm/api@0.1.0 predev
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/api@0.1.0 dev
+> node --watch --experimental-strip-types src/server.ts
+
+API listening on http://localhost:4000
+Restarting 'src/server.ts'
+API listening on http://localhost:4000
+Restarting 'src/server.ts'
+API listening on http://localhost:4000

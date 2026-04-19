@@ -288,6 +288,10 @@ h3 {
   align-items: start;
 }
 
+.document-admin-grid {
+  align-items: start;
+}
+
 .compare-grid {
   align-items: start;
 }
@@ -336,6 +340,18 @@ h3 {
   padding: 12px;
 }
 
+.access-summary {
+  background: #f7fafc;
+  border: 1px solid #e1e8f0;
+  border-radius: 14px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+}
+
+.share-form {
+  margin-bottom: 16px;
+}
+
 .history-row,
 .history-meta {
   align-items: center;
@@ -371,6 +387,25 @@ h3 {
   margin: 10px 0 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.permission-item,
+.version-item {
+  display: grid;
+  gap: 8px;
+}
+
+.permission-actions {
+  margin-top: 2px;
+}
+
+.permission-note {
+  margin: 0;
+}
+
+.button-inline {
+  padding: 8px 12px;
+  width: auto;
 }
 
 .status,

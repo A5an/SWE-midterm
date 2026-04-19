@@ -8,12 +8,13 @@ This PoC demonstrates:
 - Authenticated document create/load with shared API contracts
 - Document-level RBAC + sharing API (`owner` / `editor` / `viewer`)
 - Document version history list/fetch/restore API with immutable snapshots
+- Role-aware sharing controls and version restore UI in `apps/web`
 - Demo-authenticated collaboration session bootstrap with presence and reconnect resync
 - AI rewrite + summarize suggestions with progressive streaming, cancel, compare/apply/reject/edit/undo, and per-document history
 - Shared API data contracts via `packages/contracts`
 
 This PoC intentionally does **not** implement yet:
-- Full JWT login/refresh flow, sharing, dedicated version-history UI, export
+- Full single-backend cutover from the current Node PoC to FastAPI for collaboration + AI, and export
 - Separate collaboration and AI worker container deployment (`apps/collab` and `apps/ai-worker` remain placeholders while the baseline runs in `apps/api`)
 
 ## Prerequisites
@@ -109,10 +110,12 @@ Then in the web UI:
 4. Join the collaboration session in both windows.
 5. Verify the online user list updates in both windows.
 6. Edit text in one window and watch the other window resync.
-7. Disconnect one window, keep typing locally, reconnect, and verify the latest draft syncs once.
-8. Select text in the editor, run `Rewrite Selection` or `Summarize Selection`, and watch the suggestion stream progressively.
-9. Cancel one AI request mid-stream, then run another request and compare, edit, accept, reject, and undo the applied suggestion.
-10. Verify the AI history list shows completed/canceled jobs plus the final user decision.
+7. As the owner, assign `viewer` access to a stakeholder and verify their join attempt is blocked by the role-aware UI + backend.
+8. Refresh version history, restore an older version as a new head, and verify the document reloads on the restored version.
+9. Disconnect one window, keep typing locally, reconnect, and verify the latest draft syncs once.
+10. Select text in the editor, run `Rewrite Selection` or `Summarize Selection`, and watch the suggestion stream progressively.
+11. Cancel one AI request mid-stream, then run another request and compare, edit, accept, reject, and undo the applied suggestion.
+12. Verify the AI history list shows completed/canceled jobs plus the final user decision.
 
 ## Contract Validation
 

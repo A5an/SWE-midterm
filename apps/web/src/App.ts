@@ -7,11 +7,18 @@ import {
   isDemoLoginResponse,
   isDocumentDetailResponse,
   isDocumentMetadataResponse,
+  isDocumentPermissionsResponse,
+  isDocumentRestoreResponse,
+  isDocumentShareResponse,
+  isDocumentVersionsResponse,
   type AiHistoryRecord,
   type AiJobStatus,
   type CollaborationParticipant,
   type CreateDocumentRequest,
-  type DocumentDetailResponse
+  type DocumentDetailResponse,
+  type DocumentPermissionEntry,
+  type DocumentVersionSummary,
+  type SharingRole
 } from "@swe-midterm/contracts";
 import {
   applySuggestionToDocument,
@@ -35,6 +42,14 @@ import {
   type AuthUserProfile,
   type PersistedAuthSession
 } from "./auth.ts";
+import {
+  describeRoleCapabilities,
+  removePermissionEntry,
+  resolveEffectiveDocumentRole,
+  sortVersionsDescending,
+  upsertPermissionEntry,
+  type EffectiveDocumentRole
+} from "./document-ui.ts";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 
@@ -374,6 +389,50 @@ export const mountApp = (root: HTMLElement): void => {
       </section>
 
       <section class="panel">
+        <div class="two-column document-admin-grid">
+          <div>
+            <h2>Access & Sharing</h2>
+            <div class="access-summary">
+              <span class="field-label">Effective Access</span>
+              <p id="documentRoleState" class="session-value">Unknown</p>
+              <p id="documentRoleHint" class="hint">Load a document and sign in to inspect document access.</p>
+            </div>
+
+            <form id="shareForm" class="form-grid share-form">
+              <label class="field-label" for="sharePrincipal">User ID or Email</label>
+              <input id="sharePrincipal" class="text-input" placeholder="usr_viewer or viewer@demo.local" />
+
+              <label class="field-label" for="shareRole">Assign Role</label>
+              <select id="shareRole" class="text-input">
+                <option value="editor">editor</option>
+                <option value="viewer">viewer</option>
+              </select>
+
+              <div class="button-row button-row-left">
+                <button id="shareSubmitButton" type="submit" class="button button-primary">Assign or Update Role</button>
+                <button id="refreshPermissionsButton" type="button" class="button button-secondary">Refresh Access List</button>
+              </div>
+            </form>
+
+            <h3>Current Permissions</h3>
+            <ul id="permissionsList" class="history-list">
+              <li class="history-empty">Owner-only sharing controls will appear here after a document is loaded.</li>
+            </ul>
+          </div>
+
+          <div>
+            <h2>Version History</h2>
+            <div class="button-row button-row-left">
+              <button id="refreshVersionsButton" type="button" class="button button-secondary">Refresh Versions</button>
+            </div>
+            <ul id="versionList" class="history-list">
+              <li class="history-empty">Load a document to view version history.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>Status</h2>
         <pre id="status" class="status">Ready.</pre>
       </section>
@@ -443,6 +502,16 @@ export const mountApp = (root: HTMLElement): void => {
   const aiOriginal = root.querySelector<HTMLTextAreaElement>("#aiOriginal");
   const aiSuggestion = root.querySelector<HTMLTextAreaElement>("#aiSuggestion");
   const aiHistoryList = root.querySelector<HTMLUListElement>("#aiHistoryList");
+  const documentRoleState = root.querySelector<HTMLElement>("#documentRoleState");
+  const documentRoleHint = root.querySelector<HTMLElement>("#documentRoleHint");
+  const shareForm = root.querySelector<HTMLFormElement>("#shareForm");
+  const sharePrincipalInput = root.querySelector<HTMLInputElement>("#sharePrincipal");
+  const shareRoleSelect = root.querySelector<HTMLSelectElement>("#shareRole");
+  const shareSubmitButton = root.querySelector<HTMLButtonElement>("#shareSubmitButton");
+  const refreshPermissionsButton = root.querySelector<HTMLButtonElement>("#refreshPermissionsButton");
+  const permissionsList = root.querySelector<HTMLUListElement>("#permissionsList");
+  const refreshVersionsButton = root.querySelector<HTMLButtonElement>("#refreshVersionsButton");
+  const versionList = root.querySelector<HTMLUListElement>("#versionList");
   const statusOutput = root.querySelector<HTMLElement>("#status");
   const documentOutput = root.querySelector<HTMLElement>("#documentOutput");
 
@@ -505,6 +574,16 @@ export const mountApp = (root: HTMLElement): void => {
     !aiOriginal ||
     !aiSuggestion ||
     !aiHistoryList ||
+    !documentRoleState ||
+    !documentRoleHint ||
+    !shareForm ||
+    !sharePrincipalInput ||
+    !shareRoleSelect ||
+    !shareSubmitButton ||
+    !refreshPermissionsButton ||
+    !permissionsList ||
+    !refreshVersionsButton ||
+    !versionList ||
     !statusOutput ||
     !documentOutput
   ) {
@@ -543,6 +622,11 @@ export const mountApp = (root: HTMLElement): void => {
   let aiHistory: AiHistoryRecord[] = [];
   let aiStream: EventSource | null = null;
   let lastAiUndo: UndoState | null = null;
+  let ownerControlsAvailable = false;
+  let editAccess: boolean | null = null;
+  let documentRole: EffectiveDocumentRole = "unknown";
+  let permissions: DocumentPermissionEntry[] = [];
+  let versions: DocumentVersionSummary[] = [];
 
   const setStatus = (message: string): void => {
     statusOutput.textContent = message;
@@ -736,6 +820,358 @@ export const mountApp = (root: HTMLElement): void => {
       ? `${authSession.displayName} (${authSession.userId})`
       : "No authenticated API identity";
     authWorkspaces.textContent = authSession ? authSession.workspaceIds.join(", ") : "-";
+  };
+
+  const updateDocumentRoleState = (): void => {
+    documentRole = resolveEffectiveDocumentRole(ownerControlsAvailable, editAccess);
+    documentRoleState.textContent =
+      documentRole === "unknown" ? "Unknown" : `${documentRole.charAt(0).toUpperCase()}${documentRole.slice(1)}`;
+    documentRoleHint.textContent = describeRoleCapabilities(documentRole, authSession !== null, currentDocument !== null);
+
+    const canManageShares = currentDocument !== null && authSession !== null && documentRole === "owner";
+    const canInspectDocument = currentDocument !== null && authSession !== null;
+
+    sharePrincipalInput.disabled = !canManageShares;
+    shareRoleSelect.disabled = !canManageShares;
+    shareSubmitButton.disabled = !canManageShares;
+    refreshPermissionsButton.disabled = !canInspectDocument;
+    refreshVersionsButton.disabled = !canInspectDocument;
+
+    if (versions.length > 0) {
+      renderVersions();
+    }
+  };
+
+  const renderPermissions = (): void => {
+    if (!currentDocument) {
+      permissionsList.innerHTML = `<li class="history-empty">Load a document to inspect sharing state.</li>`;
+      return;
+    }
+
+    if (!authSession) {
+      permissionsList.innerHTML = `<li class="history-empty">Sign in with a demo user to inspect document access.</li>`;
+      return;
+    }
+
+    if (!ownerControlsAvailable) {
+      permissionsList.innerHTML = `<li class="history-empty">Only the owner can view and edit the full sharing matrix for this document.</li>`;
+      return;
+    }
+
+    if (permissions.length === 0) {
+      permissionsList.innerHTML = `<li class="history-empty">No document permissions were returned by the API.</li>`;
+      return;
+    }
+
+    permissionsList.innerHTML = permissions
+      .map((permission) => {
+        const canRemoveShare = permission.shareId !== null && permission.source === "share";
+
+        return `
+          <li class="history-item permission-item">
+            <div class="history-row">
+              <strong>${escapeHtml(permission.displayName)}</strong>
+              <span class="history-pill">${escapeHtml(permission.permissionLevel)}</span>
+              <span class="history-pill history-pill-muted">${escapeHtml(permission.source)}</span>
+            </div>
+            <div class="history-meta">
+              <span>${escapeHtml(permission.userId)}</span>
+              <span>${escapeHtml(permission.email)}</span>
+            </div>
+            ${
+              canRemoveShare
+                ? `<div class="button-row button-row-left permission-actions">
+                    <button
+                      type="button"
+                      class="button button-ghost button-inline"
+                      data-action="remove-share"
+                      data-share-id="${escapeHtml(permission.shareId ?? "")}"
+                    >
+                      Remove Explicit Share
+                    </button>
+                  </div>`
+                : `<p class="hint permission-note">${
+                    permission.source === "owner"
+                      ? "Owner access is fixed."
+                      : "Workspace access is inherited until an explicit share overrides it."
+                  }</p>`
+            }
+          </li>
+        `;
+      })
+      .join("");
+  };
+
+  const renderVersions = (): void => {
+    if (!currentDocument) {
+      versionList.innerHTML = `<li class="history-empty">Load a document to view version history.</li>`;
+      return;
+    }
+
+    if (!authSession) {
+      versionList.innerHTML = `<li class="history-empty">Sign in with a demo user to view document versions.</li>`;
+      return;
+    }
+
+    if (versions.length === 0) {
+      versionList.innerHTML = `<li class="history-empty">No versions were returned for this document.</li>`;
+      return;
+    }
+
+    versionList.innerHTML = versions
+      .map((version) => {
+        const isCurrent = currentDocument?.currentVersionId === version.versionId;
+        const canRestore = documentRole === "owner" && !isCurrent;
+
+        return `
+          <li class="history-item version-item">
+            <div class="history-row">
+              <strong>${escapeHtml(version.versionId)}</strong>
+              <span class="history-pill">${escapeHtml(version.title)}</span>
+              ${isCurrent ? `<span class="history-pill history-pill-muted">current</span>` : ""}
+              ${version.isRevert ? `<span class="history-pill history-pill-muted">restore</span>` : ""}
+            </div>
+            <div class="history-meta">
+              <span>#${version.versionNumber}</span>
+              <span>${escapeHtml(new Date(version.createdAt).toLocaleString())}</span>
+              <span>${escapeHtml(version.createdByUserId)}</span>
+            </div>
+            <p class="history-snippet">${escapeHtml(version.changeSummary)}</p>
+            <div class="button-row button-row-left permission-actions">
+              <button
+                type="button"
+                class="button button-secondary button-inline"
+                data-action="restore-version"
+                data-version-id="${escapeHtml(version.versionId)}"
+                ${canRestore ? "" : "disabled"}
+              >
+                ${isCurrent ? "Current Head" : "Restore as New Head"}
+              </button>
+            </div>
+          </li>
+        `;
+      })
+      .join("");
+  };
+
+  const resetDocumentAdminState = (): void => {
+    ownerControlsAvailable = false;
+    editAccess = null;
+    documentRole = "unknown";
+    permissions = [];
+    versions = [];
+    updateDocumentRoleState();
+    renderPermissions();
+    renderVersions();
+  };
+
+  const refreshPermissions = async (): Promise<void> => {
+    if (!currentDocument || !authSession) {
+      permissions = [];
+      ownerControlsAvailable = false;
+      updateDocumentRoleState();
+      renderPermissions();
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/permissions`,
+      {
+        headers: currentAuthHeaders()
+      }
+    );
+    const payload = await readJson(response);
+
+    if (response.ok) {
+      if (!isDocumentPermissionsResponse(payload)) {
+        setStatus("Permissions load failed: backend response does not match expected sharing contract.");
+        ownerControlsAvailable = false;
+        permissions = [];
+        updateDocumentRoleState();
+        renderPermissions();
+        return;
+      }
+
+      ownerControlsAvailable = true;
+      permissions = payload.permissions;
+      updateDocumentRoleState();
+      renderPermissions();
+      return;
+    }
+
+    ownerControlsAvailable = false;
+    permissions = [];
+    updateDocumentRoleState();
+    renderPermissions();
+
+    if (isApiErrorEnvelope(payload) && payload.error.code === "AUTHZ_FORBIDDEN") {
+      return;
+    }
+
+    handleApiFailure("Permissions load failed", payload);
+  };
+
+  const refreshVersions = async (): Promise<void> => {
+    if (!currentDocument || !authSession) {
+      versions = [];
+      renderVersions();
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/versions`,
+      {
+        headers: currentAuthHeaders()
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      versions = [];
+      renderVersions();
+      handleApiFailure("Version history load failed", payload);
+      return;
+    }
+
+    if (!isDocumentVersionsResponse(payload)) {
+      versions = [];
+      renderVersions();
+      setStatus("Version history load failed: backend response does not match expected version contract.");
+      return;
+    }
+
+    versions = sortVersionsDescending(payload.versions);
+    renderVersions();
+  };
+
+  const submitShareAssignment = async (): Promise<void> => {
+    if (!currentDocument) {
+      setStatus("Share update blocked: load a document first.");
+      return;
+    }
+
+    if (!authSession) {
+      setStatus("Share update blocked: sign in first.");
+      return;
+    }
+
+    if (documentRole !== "owner") {
+      setStatus("Share update blocked: only the owner can assign roles.");
+      return;
+    }
+
+    const principalId = sharePrincipalInput.value.trim();
+    if (!principalId) {
+      setStatus("Share update blocked: user ID or email is required.");
+      return;
+    }
+
+    const permissionLevel = shareRoleSelect.value as SharingRole;
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/shares`,
+      {
+        method: "POST",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify({
+          principalType: "user",
+          principalId,
+          permissionLevel
+        })
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("Share update failed", payload);
+      return;
+    }
+
+    if (!isDocumentShareResponse(payload)) {
+      setStatus("Share update failed: backend response does not match expected share contract.");
+      return;
+    }
+
+    permissions = upsertPermissionEntry(permissions, payload.permission);
+    await refreshPermissions();
+    sharePrincipalInput.value = "";
+    setStatus(`Assigned ${payload.permission.permissionLevel} to ${payload.permission.displayName}.`);
+  };
+
+  const removeExplicitShare = async (shareId: string): Promise<void> => {
+    if (!currentDocument) {
+      setStatus("Share removal blocked: load a document first.");
+      return;
+    }
+
+    if (!authSession) {
+      setStatus("Share removal blocked: sign in first.");
+      return;
+    }
+
+    if (documentRole !== "owner") {
+      setStatus("Share removal blocked: only the owner can revoke explicit shares.");
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/shares/${encodeURIComponent(shareId)}`,
+      {
+        method: "DELETE",
+        headers: currentAuthHeaders()
+      }
+    );
+
+    if (!response.ok) {
+      const payload = await readJson(response);
+      handleApiFailure("Share removal failed", payload);
+      return;
+    }
+
+    permissions = removePermissionEntry(permissions, shareId);
+    await refreshPermissions();
+    setStatus(`Removed explicit share ${shareId}.`);
+  };
+
+  const restoreVersion = async (versionId: string): Promise<void> => {
+    if (!currentDocument) {
+      setStatus("Restore blocked: load a document first.");
+      return;
+    }
+
+    if (!authSession) {
+      setStatus("Restore blocked: sign in first.");
+      return;
+    }
+
+    if (documentRole !== "owner") {
+      setStatus("Restore blocked: only the owner can restore document versions.");
+      return;
+    }
+
+    const response = await fetch(
+      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/versions/${encodeURIComponent(versionId)}:revert`,
+      {
+        method: "POST",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify({})
+      }
+    );
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      handleApiFailure("Version restore failed", payload);
+      return;
+    }
+
+    if (!isDocumentRestoreResponse(payload)) {
+      setStatus("Version restore failed: backend response does not match expected restore contract.");
+      return;
+    }
+
+    setStatus(
+      `Restore queued: ${payload.restoredFromVersionId} became new head ${payload.currentVersionId}. Reloading document state...`
+    );
+    await loadDocumentById(payload.documentId);
   };
 
   const renderDocument = (document: DocumentDetailResponse): void => {
@@ -1534,6 +1970,7 @@ export const mountApp = (root: HTMLElement): void => {
       return;
     }
 
+    const previousDocumentId = currentDocument?.documentId ?? null;
     setStatus(`Loading ${documentId}...`);
     const response = await fetch(`${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}`, {
       headers: currentAuthHeaders()
@@ -1556,13 +1993,21 @@ export const mountApp = (root: HTMLElement): void => {
     renderDocument(payload);
     setStatus(`Loaded ${payload.documentId} successfully.`);
 
+    if (previousDocumentId !== payload.documentId) {
+      resetDocumentAdminState();
+    }
+
     if (!sessionInfo || sessionInfo.documentId !== payload.documentId) {
       resetCollaboration(false);
       collabEditor.value = toParagraphText(payload);
+      editAccess = null;
     }
 
     resetAiState();
     syncSelectionStatus();
+    updateDocumentRoleState();
+    await refreshPermissions();
+    await refreshVersions();
     await refreshAiHistory();
   };
 
@@ -1737,13 +2182,18 @@ export const mountApp = (root: HTMLElement): void => {
       workspaceIds: payload.workspaceIds
     };
     updateAuthState();
+    resetDocumentAdminState();
 
     if (sessionInfo) {
       resetCollaboration(false);
       collabEditor.value = currentDocument ? toParagraphText(currentDocument) : collabEditor.value;
     }
 
-    await refreshAiHistory();
+    if (currentDocument) {
+      await loadDocumentById(currentDocument.documentId);
+    } else {
+      await refreshAiHistory();
+    }
     renderAiState();
     setStatus(
       `Signed in as ${payload.displayName}. Session bootstrap is now authorized for workspaces: ${payload.workspaceIds.join(", ")}.`
@@ -1753,6 +2203,7 @@ export const mountApp = (root: HTMLElement): void => {
   logoutButton.addEventListener("click", () => {
     authSession = null;
     updateAuthState();
+    resetDocumentAdminState();
     if (sessionInfo) {
       resetCollaboration(false);
       collabEditor.value = currentDocument ? toParagraphText(currentDocument) : collabEditor.value;
@@ -1784,6 +2235,10 @@ export const mountApp = (root: HTMLElement): void => {
     const payload = await readJson(response);
 
     if (!response.ok) {
+      if (isApiErrorEnvelope(payload) && payload.error.code === "AUTHZ_FORBIDDEN") {
+        editAccess = false;
+        updateDocumentRoleState();
+      }
       handleApiFailure("Session start failed", payload);
       return;
     }
@@ -1799,6 +2254,8 @@ export const mountApp = (root: HTMLElement): void => {
       sessionToken: payload.sessionToken,
       wsUrl: payload.wsUrl
     };
+    editAccess = true;
+    updateDocumentRoleState();
     updateSessionState();
     updateRevisionState(payload.serverRevision);
     setEditorEnabled(true);
@@ -1858,6 +2315,57 @@ export const mountApp = (root: HTMLElement): void => {
   collabEditor.addEventListener("select", syncSelectionStatus);
   collabEditor.addEventListener("click", syncSelectionStatus);
   collabEditor.addEventListener("keyup", syncSelectionStatus);
+
+  shareForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitShareAssignment();
+  });
+
+  refreshPermissionsButton.addEventListener("click", async () => {
+    await refreshPermissions();
+  });
+
+  permissionsList.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const button = target.closest<HTMLButtonElement>("[data-action='remove-share']");
+    if (!button) {
+      return;
+    }
+
+    const shareId = button.dataset.shareId;
+    if (!shareId) {
+      return;
+    }
+
+    await removeExplicitShare(shareId);
+  });
+
+  refreshVersionsButton.addEventListener("click", async () => {
+    await refreshVersions();
+  });
+
+  versionList.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const button = target.closest<HTMLButtonElement>("[data-action='restore-version']");
+    if (!button || button.disabled) {
+      return;
+    }
+
+    const versionId = button.dataset.versionId;
+    if (!versionId) {
+      return;
+    }
+
+    await restoreVersion(versionId);
+  });
 
   rewriteButton.addEventListener("click", async () => {
     await startAiJob("rewrite");
@@ -1927,5 +2435,6 @@ export const mountApp = (root: HTMLElement): void => {
   documentOutput.textContent = "No document loaded yet.";
   renderAiHistory();
   renderAiState();
+  resetDocumentAdminState();
   void restoreFastapiSession("Checking for a saved auth session...");
 };
