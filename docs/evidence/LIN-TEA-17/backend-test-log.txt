@@ -1,0 +1,22 @@
+
+> @swe-midterm/api@0.1.0 pretest
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/api@0.1.0 test
+> node --experimental-strip-types src/contract-test.ts
+
+ws-auth: invalid token rejected with HTTP 401
+authz: session bootstrap requires API auth and workspace access
+presence: both websocket clients see the same online user list
+presence: disconnect removed the offline user from the room
+reconnect: resync applied once and the latest shared text persisted
+ai-stream: rewrite streamed progressive output and completed
+ai-history: completed rewrite saved with pending history and accepted decision support
+ai-stream: summarize stream canceled successfully before completion
+ai-history: canceled summarize job is retained in per-document history
+API + websocket contract tests passed.

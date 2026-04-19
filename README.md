@@ -8,12 +8,12 @@ This PoC demonstrates:
 - Authenticated document create/load with shared API contracts
 - Document-level RBAC + sharing API (`owner` / `editor` / `viewer`)
 - Demo-authenticated collaboration session bootstrap with presence and reconnect resync
+- AI rewrite + summarize suggestions with progressive streaming, cancel, compare/apply/reject/edit/undo, and per-document history
 - Shared API data contracts via `packages/contracts`
 
 This PoC intentionally does **not** implement yet:
-- AI orchestration (`apps/ai-worker` is placeholder)
-- Full JWT login/refresh flow, version restore, export
-- Separate collaboration container deployment (`apps/collab` remains a placeholder while baseline runs in `apps/api`)
+- Full JWT login/refresh flow, sharing, version restore, export
+- Separate collaboration and AI worker container deployment (`apps/collab` and `apps/ai-worker` remain placeholders while the baseline runs in `apps/api`)
 
 ## Prerequisites
 
@@ -88,6 +88,9 @@ Demo login credentials for the collaboration baseline:
 5. Verify the online user list updates in both windows.
 6. Edit text in one window and watch the other window resync.
 7. Disconnect one window, keep typing locally, reconnect, and verify the latest draft syncs once.
+8. Select text in the editor, run `Rewrite Selection` or `Summarize Selection`, and watch the suggestion stream progressively.
+9. Cancel one AI request mid-stream, then run another request and compare, edit, accept, reject, and undo the applied suggestion.
+10. Verify the AI history list shows completed/canceled jobs plus the final user decision.
 
 ## Contract Validation
 
@@ -111,7 +114,10 @@ The test validates that responses and events match shared contracts:
 - `DemoLoginResponse`
 - `ApiErrorEnvelope`
 - `CollaborationSessionResponse`
+- `CreateAiJobResponse`
+- `AiHistoryResponse`
 - Demo login auth, document RBAC/share enforcement, session bootstrap authorization, WebSocket auth, presence, and reconnect replay behavior
+- AI job creation, progressive stream events, cancel path, and per-document history persistence
 
 ## Repository Shape (PoC-relevant)
 
