@@ -21,4 +21,5 @@ rbac: viewer direct API edit rejected with 403 AUTHZ_FORBIDDEN
 presence: owner and shared editor see the same online user list
 presence: disconnect removed the offline shared editor from the room
 reconnect: resync applied once and the latest shared text persisted
+rbac: downgraded editor session token can no longer mutate or reconnect
 API + websocket contract tests passed.
