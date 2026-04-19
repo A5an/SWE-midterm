@@ -746,38 +746,6 @@ const main = async (): Promise<void> => {
     return completed.outputText;
   };
 
-  const completeAiJob = async (job: {
-    jobId: string;
-    streamToken: string;
-    streamUrl: string;
-  }): Promise<string> => {
-    const stream = await openSseStream(`${job.streamUrl}?token=${encodeURIComponent(job.streamToken)}`);
-    await waitForSseEvent<{ status: string }>(
-      stream.bucket,
-      (event) => event.type === "ai.status" && typeof event.status === "string"
-    );
-    const chunk = await waitForSseEvent<{ outputText: string; type: string }>(
-      stream.bucket,
-      (event) =>
-        event.type === "ai.chunk" &&
-        typeof event.outputText === "string" &&
-        event.outputText.length > 0
-    );
-    const completed = await waitForSseEvent<{ outputText: string; status: string; type: string }>(
-      stream.bucket,
-      (event) =>
-        event.type === "ai.completed" &&
-        event.status === "completed" &&
-        typeof event.outputText === "string"
-    );
-    assert.ok(
-      chunk.outputText.length < completed.outputText.length,
-      "AI stream must deliver progressive chunks before completion."
-    );
-    await stream.close();
-    return completed.outputText;
-  };
-
   const rewriteJob = await createAiJob("rewrite", offlineReplayMessage.text);
   const queuedDecisionResponse = await fetch(
     `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${rewriteJob.jobId}/decision`,

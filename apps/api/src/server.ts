@@ -1606,7 +1606,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         return;
       }
 
-      if (!canAccessDocument(authenticatedUser.value, found)) {
+      if (!canReadDocument(authenticatedUser.value, found)) {
         json(
           response,
           403,
@@ -1854,7 +1854,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         return;
       }
 
-      if (!canAccessDocument(authenticatedUser.value, found)) {
+      if (!canReadDocument(authenticatedUser.value, found)) {
         json(
           response,
           403,
