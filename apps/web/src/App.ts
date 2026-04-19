@@ -594,6 +594,26 @@ export const mountApp = (root: HTMLElement): void => {
         return;
       }
 
+      if (typedMessage.type === "server.reload_required") {
+        const reload = message as unknown as {
+          documentId: string;
+          newVersionId: string;
+          reason: string;
+          serverRevision: number;
+          text: string;
+        };
+
+        pendingMutation = null;
+        updateRevisionState(reload.serverRevision);
+        collabEditor.value = reload.text;
+        syncDocumentFromEditor();
+        setStatus(
+          `Document head changed (${reload.reason}). Reloading version ${reload.newVersionId}.`
+        );
+        void loadDocumentById(reload.documentId);
+        return;
+      }
+
       if (typedMessage.type === "server.error") {
         const errorMessage = message as unknown as { code: string; message: string };
         setStatus(`WebSocket error: ${errorMessage.code} - ${errorMessage.message}`);

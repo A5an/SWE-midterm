@@ -8,7 +8,10 @@ import {
   isDocumentDetailResponse,
   isDocumentMetadataResponse,
   isDocumentPermissionsResponse,
-  isDocumentShareResponse
+  isDocumentRestoreResponse,
+  isDocumentShareResponse,
+  isDocumentVersionResponse,
+  isDocumentVersionsResponse
 } from "@swe-midterm/contracts";
 import { createApiServer } from "./server.ts";
 
@@ -207,6 +210,7 @@ const main = async (): Promise<void> => {
   );
 
   const owner = await loginDemoUser(baseUrl, "usr_assanali", "demo-assanali");
+  const workspaceEditor = await loginDemoUser(baseUrl, "usr_dachi", "demo-dachi");
   const editor = await loginDemoUser(baseUrl, "usr_editor", "demo-editor");
   const viewer = await loginDemoUser(baseUrl, "usr_viewer", "demo-viewer");
 
@@ -405,13 +409,13 @@ const main = async (): Promise<void> => {
     "Editor update applied through the direct document API."
   );
 
-  const createSession = async (accessToken: string): Promise<{
+  const createSession = async (accessToken: string, documentId = created.documentId): Promise<{
     documentId: string;
     sessionId: string;
     sessionToken: string;
     wsUrl: string;
   }> => {
-    const response = await fetch(`${baseUrl}/v1/documents/${created.documentId}/sessions`, {
+    const response = await fetch(`${baseUrl}/v1/documents/${documentId}/sessions`, {
       method: "POST",
       headers: authHeaders(accessToken),
       body: JSON.stringify({})
@@ -432,6 +436,222 @@ const main = async (): Promise<void> => {
       wsUrl: string;
     };
   };
+
+  const versionCreateResponse = await fetch(`${baseUrl}/v1/documents`, {
+    method: "POST",
+    headers: authHeaders(owner.accessToken),
+    body: JSON.stringify({
+      workspaceId: "ws_123",
+      title: "Version history baseline",
+      templateId: null,
+      initialContent: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            text: "Version one content."
+          }
+        ]
+      }
+    })
+  });
+  assert.equal(versionCreateResponse.status, 201, "Version test fixture document must be created.");
+  const versionCreateBody = (await versionCreateResponse.json()) as unknown;
+  assert.equal(isDocumentMetadataResponse(versionCreateBody), true);
+  const versionedDocument = versionCreateBody as { documentId: string; currentVersionId: string };
+  assert.equal(versionedDocument.currentVersionId, "ver_001");
+
+  const initialVersionsResponse = await fetch(
+    `${baseUrl}/v1/documents/${versionedDocument.documentId}/versions`,
+    {
+      headers: authHeaders(owner.accessToken)
+    }
+  );
+  assert.equal(initialVersionsResponse.status, 200, "Version list must return 200 for readable documents.");
+  const initialVersionsBody = (await initialVersionsResponse.json()) as unknown;
+  assert.equal(isDocumentVersionsResponse(initialVersionsBody), true);
+  const initialVersions = initialVersionsBody as {
+    currentVersionId: string;
+    versions: Array<{ versionId: string; versionNumber: number }>;
+  };
+  assert.equal(initialVersions.currentVersionId, "ver_001");
+  assert.deepEqual(
+    initialVersions.versions.map((version) => [version.versionId, version.versionNumber]),
+    [["ver_001", 1]]
+  );
+
+  const firstVersionResponse = await fetch(
+    `${baseUrl}/v1/documents/${versionedDocument.documentId}/versions/ver_001`,
+    {
+      headers: authHeaders(owner.accessToken)
+    }
+  );
+  assert.equal(firstVersionResponse.status, 200, "Version fetch must return 200 for existing snapshots.");
+  const firstVersionBody = (await firstVersionResponse.json()) as unknown;
+  assert.equal(isDocumentVersionResponse(firstVersionBody), true);
+  assert.equal(
+    (firstVersionBody as { content: { content: Array<{ text: string }> } }).content.content[0]?.text,
+    "Version one content."
+  );
+
+  const versionPatchResponse = await fetch(`${baseUrl}/v1/documents/${versionedDocument.documentId}`, {
+    method: "PATCH",
+    headers: authHeaders(owner.accessToken),
+    body: JSON.stringify({
+      title: "Version history baseline (edited)",
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            text: "Version two content."
+          }
+        ]
+      }
+    })
+  });
+  assert.equal(versionPatchResponse.status, 200, "Direct updates must create a new version head.");
+  const versionPatchBody = (await versionPatchResponse.json()) as unknown;
+  assert.equal(isDocumentDetailResponse(versionPatchBody), true);
+  assert.equal((versionPatchBody as { currentVersionId: string }).currentVersionId, "ver_002");
+
+  const secondVersionsResponse = await fetch(
+    `${baseUrl}/v1/documents/${versionedDocument.documentId}/versions`,
+    {
+      headers: authHeaders(owner.accessToken)
+    }
+  );
+  assert.equal(secondVersionsResponse.status, 200);
+  const secondVersionsBody = (await secondVersionsResponse.json()) as unknown;
+  assert.equal(isDocumentVersionsResponse(secondVersionsBody), true);
+  const secondVersions = secondVersionsBody as {
+    currentVersionId: string;
+    versions: Array<{ changeSummary: string; versionId: string }>;
+  };
+  assert.equal(secondVersions.currentVersionId, "ver_002");
+  assert.deepEqual(
+    secondVersions.versions.map((version) => version.versionId),
+    ["ver_001", "ver_002"]
+  );
+  assert.equal(secondVersions.versions[1]?.changeSummary, "Updated title and content");
+
+  const versionOwnerSession = await createSession(owner.accessToken, versionedDocument.documentId);
+  const versionEditorSession = await createSession(workspaceEditor.accessToken, versionedDocument.documentId);
+  const versionOwnerSocket = await openSocket(
+    `${versionOwnerSession.wsUrl}?token=${encodeURIComponent(versionOwnerSession.sessionToken)}`
+  );
+  const ownerVersionBootstrap = await waitForMessage<{
+    serverRevision: number;
+    text: string;
+    type: string;
+  }>(versionOwnerSocket.bucket, (message) => message.type === "server.bootstrap");
+  assert.equal(ownerVersionBootstrap.serverRevision, 1);
+  assert.equal(ownerVersionBootstrap.text, "Version two content.");
+
+  const versionEditorSocket = await openSocket(
+    `${versionEditorSession.wsUrl}?token=${encodeURIComponent(versionEditorSession.sessionToken)}`
+  );
+  await waitForMessage(versionEditorSocket.bucket, (message) => message.type === "server.bootstrap");
+  await waitForMessage(
+    versionOwnerSocket.bucket,
+    (message) => message.type === "server.presence" && Array.isArray(message.participants)
+  );
+  await waitForMessage(
+    versionEditorSocket.bucket,
+    (message) => message.type === "server.presence" && Array.isArray(message.participants)
+  );
+
+  const editorRestoreForbiddenResponse = await fetch(
+    `${baseUrl}/v1/documents/${versionedDocument.documentId}/versions/ver_001:revert`,
+    {
+      method: "POST",
+      headers: authHeaders(workspaceEditor.accessToken)
+    }
+  );
+  assert.equal(editorRestoreForbiddenResponse.status, 403, "Only owners must be allowed to restore versions.");
+  const editorRestoreForbiddenBody = (await editorRestoreForbiddenResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(editorRestoreForbiddenBody), true);
+  assert.equal(
+    (editorRestoreForbiddenBody as { error: { code: string } }).error.code,
+    "AUTHZ_FORBIDDEN"
+  );
+
+  const restoreResponse = await fetch(
+    `${baseUrl}/v1/documents/${versionedDocument.documentId}/versions/ver_001:revert`,
+    {
+      method: "POST",
+      headers: authHeaders(owner.accessToken)
+    }
+  );
+  assert.equal(restoreResponse.status, 202, "Restore must create a new head version.");
+  const restoreBody = (await restoreResponse.json()) as unknown;
+  assert.equal(isDocumentRestoreResponse(restoreBody), true);
+  const restore = restoreBody as {
+    currentVersionId: string;
+    restoredFromVersionId: string;
+  };
+  assert.equal(restore.restoredFromVersionId, "ver_001");
+  assert.equal(restore.currentVersionId, "ver_003");
+
+  const ownerReloadRequired = await waitForMessage<{
+    newVersionId: string;
+    reason: string;
+    serverRevision: number;
+    text: string;
+    type: string;
+  }>(
+    versionOwnerSocket.bucket,
+    (message) => message.type === "server.reload_required"
+  );
+  assert.equal(ownerReloadRequired.reason, "revert_created_new_head");
+  assert.equal(ownerReloadRequired.newVersionId, "ver_003");
+  assert.equal(ownerReloadRequired.serverRevision, 2);
+  assert.equal(ownerReloadRequired.text, "Version one content.");
+
+  const editorReloadRequired = await waitForMessage<{
+    newVersionId: string;
+    text: string;
+    type: string;
+  }>(
+    versionEditorSocket.bucket,
+    (message) => message.type === "server.reload_required"
+  );
+  assert.equal(editorReloadRequired.newVersionId, "ver_003");
+  assert.equal(editorReloadRequired.text, "Version one content.");
+
+  const restoredLoadResponse = await fetch(`${baseUrl}/v1/documents/${versionedDocument.documentId}`, {
+    headers: authHeaders(owner.accessToken)
+  });
+  assert.equal(restoredLoadResponse.status, 200);
+  const restoredLoadBody = (await restoredLoadResponse.json()) as unknown;
+  assert.equal(isDocumentDetailResponse(restoredLoadBody), true);
+  assert.equal((restoredLoadBody as { currentVersionId: string }).currentVersionId, "ver_003");
+  assert.equal(
+    (restoredLoadBody as { content: { content: Array<{ text: string }> } }).content.content[0]?.text,
+    "Version one content."
+  );
+
+  const restoredVersionResponse = await fetch(
+    `${baseUrl}/v1/documents/${versionedDocument.documentId}/versions/ver_003`,
+    {
+      headers: authHeaders(owner.accessToken)
+    }
+  );
+  assert.equal(restoredVersionResponse.status, 200);
+  const restoredVersionBody = (await restoredVersionResponse.json()) as unknown;
+  assert.equal(isDocumentVersionResponse(restoredVersionBody), true);
+  const restoredVersion = restoredVersionBody as {
+    basedOnVersionId: string | null;
+    changeSummary: string;
+    isRevert: boolean;
+  };
+  assert.equal(restoredVersion.isRevert, true);
+  assert.equal(restoredVersion.basedOnVersionId, "ver_001");
+  assert.equal(restoredVersion.changeSummary, "Restored from version ver_001");
+  console.log("versions: list/fetch/revert create immutable snapshots and restore a new head state");
+
+  versionEditorSocket.ws.close();
+  versionOwnerSocket.ws.close();
 
   const viewerSessionResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/sessions`, {
     method: "POST",

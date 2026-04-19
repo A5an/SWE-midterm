@@ -7,12 +7,13 @@ This PoC demonstrates:
 - A working backend API (`apps/api`)
 - Authenticated document create/load with shared API contracts
 - Document-level RBAC + sharing API (`owner` / `editor` / `viewer`)
+- Document version history list/fetch/restore API with immutable snapshots
 - Demo-authenticated collaboration session bootstrap with presence and reconnect resync
 - Shared API data contracts via `packages/contracts`
 
 This PoC intentionally does **not** implement yet:
 - AI orchestration (`apps/ai-worker` is placeholder)
-- Full JWT login/refresh flow, version restore, export
+- Full JWT login/refresh flow, dedicated version-history UI, export
 - Separate collaboration container deployment (`apps/collab` remains a placeholder while baseline runs in `apps/api`)
 
 ## Prerequisites
