@@ -1,0 +1,6 @@
+PR URL pending.
+
+Suggested title:
+`feat(web): add LIN-TEA-15 sharing, role-aware access, and version restore UI`
+
+Replace this file with the actual PR URL after pushing `feat/LIN-TEA-15-sharing-role-version-ui` and opening the pull request.

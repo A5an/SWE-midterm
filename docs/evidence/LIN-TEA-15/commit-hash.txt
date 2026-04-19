@@ -1,0 +1,6 @@
+Base HEAD before LIN-TEA-15 commit creation: `051baa727dfeff3eb49d3043e2535841a2c79d15`
+Branch: `feat/LIN-TEA-15-sharing-role-version-ui`
+
+Note:
+- This evidence bundle was prepared from the working tree before creating a dedicated LIN-TEA-15 commit.
+- Replace this file with the actual implementation commit hash after committing the changes for the PR.
