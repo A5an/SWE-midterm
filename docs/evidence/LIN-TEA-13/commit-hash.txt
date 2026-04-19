@@ -1,3 +1,4 @@
-Base commit: a34cfdd32a29c3d9c131112c6540ad12173ed0af
+Evidence branch head: 47ba1060f566632a643b2f8c406d2f048e2cbf2a
 
-Note: the auth UI/session persistence changes described in this evidence bundle are still uncommitted in the current workspace. Replace this file with the actual feature-branch commit hash before opening the PR.
+Branch: feat/LIN-TEA-13-auth-ui-session-persistence
+PR: https://github.com/A5an/SWE-midterm/pull/11
