@@ -2,7 +2,7 @@
 
 - Linear issue: `LIN-TEA-15`
 - Branch used in this workspace: `feat/LIN-TEA-15-sharing-role-version-ui`
-- Base HEAD before commit/PR creation: see `commit-hash.txt`
+- Implementation commit: see `commit-hash.txt`
 - PR: pending branch push and PR creation. Placeholder recorded in `pr-link.txt`.
 
 ## What changed and why
@@ -28,7 +28,7 @@
 - `backend-contract-tests.txt`: existing API/WebSocket contract suite proving sharing/version behavior remained intact.
 - `api-dev.log`: local API dev server log captured during the UI recording run.
 - `web-dev.log`: local web dev server log captured during the UI recording run.
-- `commit-hash.txt`: current base HEAD reference plus a note that a fresh implementation commit is still pending.
+- `commit-hash.txt`: implementation commit reference for the current branch state.
 - `pr-link.txt`: placeholder for the future PR URL.
 
 ## Manual recording script
