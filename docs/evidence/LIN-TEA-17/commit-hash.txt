@@ -1,2 +1,2 @@
-Implementation anchor commit: 19bdbf588ddb490e66a377bb4e6e95a671b16635
-Purpose: final review-fix commit that made AI decisions terminal, preserved the single accepted/edited -> undone transition, and refreshed the passing evidence logs.
+Implementation anchor commit: e4f273aa275d7d18c85b5b49347d34079aee391c
+Purpose: post-rebase cleanup commit that removed duplicate contract-test helpers, aligned document access checks with current main, and kept the rebased TEA-17 verification suite passing.

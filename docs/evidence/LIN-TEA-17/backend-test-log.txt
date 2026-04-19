@@ -11,9 +11,11 @@
 > node --experimental-strip-types src/contract-test.ts
 
 ws-auth: invalid token rejected with HTTP 401
-authz: session bootstrap requires API auth and workspace access
-presence: both websocket clients see the same online user list
-presence: disconnect removed the offline user from the room
+share-gate: external user denied before explicit share
+rbac: role matrix includes owner, workspace editors, shared editor, and shared viewer
+rbac: viewer direct API edit rejected with 403 AUTHZ_FORBIDDEN
+presence: owner and shared editor see the same online user list
+presence: disconnect removed the offline shared editor from the room
 reconnect: resync applied once and the latest shared text persisted
 ai-stream: rewrite streamed progressive output and completed
 ai-history: queued decisions are rejected and only the requesting user may mutate AI job decisions
@@ -21,4 +23,5 @@ ai-history: accepted jobs reject later reject writes and still allow a single un
 ai-history: edited jobs also reject later reject writes
 ai-stream: summarize stream canceled successfully before completion
 ai-history: canceled summarize job is retained in per-document history
+rbac: downgraded editor session token can no longer mutate or reconnect
 API + websocket contract tests passed.
