@@ -1,2 +1,2 @@
 Draft PR: https://github.com/A5an/SWE-midterm/pull/8
-Status: video evidence added and branch rebased onto current origin/main. GitHub PR body still needs a manual refresh to remove the old pending-video wording.
+Status: video evidence added, viewer AI invocation now blocked server-side, and branch rebased onto current origin/main. GitHub PR body still needs a manual refresh to remove the old pending-video wording.
