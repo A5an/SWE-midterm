@@ -1,0 +1,32 @@
+Protected route evidence
+
+unauthenticated GET /v1/me: 401
+{
+  "error": {
+    "code": "AUTHN_REQUIRED",
+    "message": "Bearer access token is required.",
+    "retryable": false,
+    "requestId": "req_cc27725831f7",
+    "details": null
+  }
+}
+
+stale pre-refresh access token on GET /v1/me: 401
+{
+  "error": {
+    "code": "AUTHN_INVALID_TOKEN",
+    "message": "Access token is invalid.",
+    "retryable": false,
+    "requestId": "req_4df9ee059353",
+    "details": null
+  }
+}
+
+rotated access token on GET /v1/me: 200
+{
+  "userId": "usr_a9643b65",
+  "email": "jwt-demo-1776612992@example.com",
+  "displayName": "JWT Demo User",
+  "workspaceRole": "owner",
+  "createdAt": "2026-04-19T15:36:32.371263Z"
+}

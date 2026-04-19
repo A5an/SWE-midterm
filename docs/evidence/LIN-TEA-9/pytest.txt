@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.2, pytest-7.4.4, pluggy-1.0.0
+rootdir: /Users/dachi.tchotashvili/local docs/VS_main/soft project github/SWE-midterm
+plugins: anyio-4.11.0
+collected 12 items
+
+backend/tests/test_auth.py ......                                        [ 50%]
+backend/tests/test_documents.py ......                                   [100%]
+
+============================== 12 passed in 1.08s ==============================

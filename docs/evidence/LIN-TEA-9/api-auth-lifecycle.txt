@@ -1,0 +1,42 @@
+JWT auth lifecycle evidence
+
+login: 200
+refresh: 200
+stale access after refresh rotation: 401
+replayed refresh after rotation: 401
+rotated access on protected route: 200
+
+login access token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX...
+rotated access token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX...
+rotated refresh token prefix: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX...
+
+current user payload:
+{
+  "userId": "usr_a9643b65",
+  "email": "jwt-demo-1776612992@example.com",
+  "displayName": "JWT Demo User",
+  "workspaceRole": "owner",
+  "createdAt": "2026-04-19T15:36:32.371263Z"
+}
+
+stale access error:
+{
+  "error": {
+    "code": "AUTHN_INVALID_TOKEN",
+    "message": "Access token is invalid.",
+    "retryable": false,
+    "requestId": "req_4df9ee059353",
+    "details": null
+  }
+}
+
+refresh replay error:
+{
+  "error": {
+    "code": "AUTHN_INVALID_TOKEN",
+    "message": "Refresh token is invalid.",
+    "retryable": false,
+    "requestId": "req_17b52512ebfc",
+    "details": null
+  }
+}

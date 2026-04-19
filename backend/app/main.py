@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from uuid import uuid4
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,29 +10,39 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.app.errors import ApiApplicationError, build_error_envelope, error_message_from_validation
+from backend.app.routers.auth import router as auth_router
 from backend.app.routers.documents import router as documents_router
+from backend.app.security import AuthSettings
+from backend.app.services.auth_store import AuthStore
 from backend.app.services.document_store import DocumentStore
 
 
-def create_app(store: Optional[DocumentStore] = None) -> FastAPI:
+def create_app(
+    store: Optional[DocumentStore] = None,
+    auth_store: Optional[AuthStore] = None,
+    auth_settings: Optional[AuthSettings] = None,
+) -> FastAPI:
     app = FastAPI(
         title="SWE Midterm FastAPI Backend",
-        summary="Assignment 2 FastAPI skeleton for document create/load flows.",
+        summary="Assignment 2 FastAPI baseline for auth lifecycle and document create/load flows.",
         version="0.1.0",
         description=(
             "Minimal FastAPI backend used for the Assignment 2 baseline. "
-            "It migrates the document create/load PoC endpoints from the Node prototype "
+            "It currently provides JWT-based register/login/refresh endpoints, a protected "
+            "proof route, and the existing in-memory document create/load PoC endpoints "
             "while keeping the JSON response shape stable for the frontend."
         ),
     )
 
     app.state.document_store = store or DocumentStore()
+    app.state.auth_store = auth_store or AuthStore()
+    app.state.auth_settings = auth_settings or AuthSettings.from_env()
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "Authorization"],
     )
 
     @app.middleware("http")
@@ -96,6 +106,7 @@ def create_app(store: Optional[DocumentStore] = None) -> FastAPI:
             ),
         )
 
+    app.include_router(auth_router)
     app.include_router(documents_router)
 
     return app

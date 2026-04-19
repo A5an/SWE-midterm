@@ -1,0 +1,130 @@
+### GET /v1/me without Authorization
+Status: 401
+Headers:
+  content-type: application/json
+  x-request-id: req_cc27725831f7
+Body:
+{
+  "error": {
+    "code": "AUTHN_REQUIRED",
+    "message": "Bearer access token is required.",
+    "retryable": false,
+    "requestId": "req_cc27725831f7",
+    "details": null
+  }
+}
+
+### POST /v1/auth/register
+Status: 201
+Headers:
+  content-type: application/json
+  x-request-id: req_556fffb7987c
+Body:
+{
+  "user": {
+    "userId": "usr_a9643b65",
+    "email": "jwt-demo-1776612992@example.com",
+    "displayName": "JWT Demo User",
+    "workspaceRole": "owner",
+    "createdAt": "2026-04-19T15:36:32.371263Z"
+  },
+  "tokens": {
+    "tokenType": "bearer",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzY2MTM4OTIsImlhdCI6MTc3NjYxMjk5MiwiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc185NmZhMzA0Y2M3Iiwic3ViIjoidXNyX2E5NjQzYjY1IiwidHlwIjoiYWNjZXNzIn0.UsNkAmxWm5FfU2ewFNw4xs7g_sDG0wbsKz9SEVn1smY",
+    "accessTokenExpiresAt": "2026-04-19T15:51:32.371306Z",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzcyMTc3OTIsImlhdCI6MTc3NjYxMjk5MiwiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc185NmZhMzA0Y2M3Iiwic3ViIjoidXNyX2E5NjQzYjY1IiwidHlwIjoicmVmcmVzaCJ9.pTANeJVvjtErTZ37uc7_eJmlYcqpXT5oHlsYF9j3Svk",
+    "refreshTokenExpiresAt": "2026-04-26T15:36:32.371365Z"
+  }
+}
+
+### POST /v1/auth/login
+Status: 200
+Headers:
+  content-type: application/json
+  x-request-id: req_525538c6fce9
+Body:
+{
+  "user": {
+    "userId": "usr_a9643b65",
+    "email": "jwt-demo-1776612992@example.com",
+    "displayName": "JWT Demo User",
+    "workspaceRole": "owner",
+    "createdAt": "2026-04-19T15:36:32.371263Z"
+  },
+  "tokens": {
+    "tokenType": "bearer",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzY2MTM4OTIsImlhdCI6MTc3NjYxMjk5MiwiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc180MjAxMTVjYThjIiwic3ViIjoidXNyX2E5NjQzYjY1IiwidHlwIjoiYWNjZXNzIn0.VsLnxShzUfSpZexAMpXGqVidf4hhcPBIBgE7AtCv_BQ",
+    "accessTokenExpiresAt": "2026-04-19T15:51:32.434920Z",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzcyMTc3OTIsImlhdCI6MTc3NjYxMjk5MiwiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc180MjAxMTVjYThjIiwic3ViIjoidXNyX2E5NjQzYjY1IiwidHlwIjoicmVmcmVzaCJ9.-7d-ZFbpwsV65c5Xx7ptsmzd8ayGjKgxhE8enYKK3l0",
+    "refreshTokenExpiresAt": "2026-04-26T15:36:32.434961Z"
+  }
+}
+
+### POST /v1/auth/refresh
+Status: 200
+Headers:
+  content-type: application/json
+  x-request-id: req_23d850f35436
+Body:
+{
+  "user": {
+    "userId": "usr_a9643b65",
+    "email": "jwt-demo-1776612992@example.com",
+    "displayName": "JWT Demo User",
+    "workspaceRole": "owner",
+    "createdAt": "2026-04-19T15:36:32.371263Z"
+  },
+  "tokens": {
+    "tokenType": "bearer",
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzY2MTM4OTIsImlhdCI6MTc3NjYxMjk5MiwiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc18xZjMxZDUxZjcxIiwic3ViIjoidXNyX2E5NjQzYjY1IiwidHlwIjoiYWNjZXNzIn0.LLBkELwqlVA-lITkruNF3XIG54OsVG9BrOTC6xSay20",
+    "accessTokenExpiresAt": "2026-04-19T15:51:32.486206Z",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzcyMTc3OTIsImlhdCI6MTc3NjYxMjk5MiwiaXNzIjoic3dlLW1pZHRlcm0tZmFzdGFwaSIsInNpZCI6InNlc18xZjMxZDUxZjcxIiwic3ViIjoidXNyX2E5NjQzYjY1IiwidHlwIjoicmVmcmVzaCJ9.ghAg6JpLbjumyHUrmN77s9wUUrRW0QxD340WIWaDXyc",
+    "refreshTokenExpiresAt": "2026-04-26T15:36:32.486229Z"
+  }
+}
+
+### GET /v1/me with stale pre-refresh access token
+Status: 401
+Headers:
+  content-type: application/json
+  x-request-id: req_4df9ee059353
+Body:
+{
+  "error": {
+    "code": "AUTHN_INVALID_TOKEN",
+    "message": "Access token is invalid.",
+    "retryable": false,
+    "requestId": "req_4df9ee059353",
+    "details": null
+  }
+}
+
+### GET /v1/me with rotated access token
+Status: 200
+Headers:
+  content-type: application/json
+  x-request-id: req_baa7dde1444e
+Body:
+{
+  "userId": "usr_a9643b65",
+  "email": "jwt-demo-1776612992@example.com",
+  "displayName": "JWT Demo User",
+  "workspaceRole": "owner",
+  "createdAt": "2026-04-19T15:36:32.371263Z"
+}
+
+### POST /v1/auth/refresh replay with old refresh token
+Status: 401
+Headers:
+  content-type: application/json
+  x-request-id: req_17b52512ebfc
+Body:
+{
+  "error": {
+    "code": "AUTHN_INVALID_TOKEN",
+    "message": "Refresh token is invalid.",
+    "retryable": false,
+    "requestId": "req_17b52512ebfc",
+    "details": null
+  }
+}

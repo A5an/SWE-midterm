@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+WorkspaceRole = Literal["owner", "editor", "commenter", "viewer"]
 
 
 class DocumentParagraph(BaseModel):
@@ -89,3 +92,137 @@ class ApiError(BaseModel):
 
 class ApiErrorEnvelope(BaseModel):
     error: ApiError
+
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class RegisterUserRequest(BaseModel):
+    email: str
+    password: str
+    displayName: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not EMAIL_PATTERN.match(normalized):
+            raise ValueError("email must be a valid email address.")
+        return normalized
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value) < 8:
+            raise ValueError("password must be at least 8 characters long.")
+        if len(value) > 128:
+            raise ValueError("password must be at most 128 characters long.")
+        return value
+
+    @field_validator("displayName")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("displayName must be a non-empty string.")
+        return value.strip()
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not EMAIL_PATTERN.match(normalized):
+            raise ValueError("email must be a valid email address.")
+        return normalized
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if not isinstance(value, str) or not value:
+            raise ValueError("password must be a non-empty string.")
+        return value
+
+
+class RefreshTokenRequest(BaseModel):
+    refreshToken: str
+
+    @field_validator("refreshToken")
+    @classmethod
+    def validate_refresh_token(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("refreshToken must be a non-empty string.")
+        return value.strip()
+
+
+class UserProfileResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "userId": "usr_123",
+                "email": "user@example.com",
+                "displayName": "Dachi",
+                "workspaceRole": "owner",
+                "createdAt": "2026-04-16T10:20:00Z",
+            }
+        }
+    )
+
+    userId: str
+    email: str
+    displayName: str
+    workspaceRole: WorkspaceRole = "owner"
+    createdAt: datetime
+
+
+class TokenBundleResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "tokenType": "bearer",
+                "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "accessTokenExpiresAt": "2026-04-16T10:35:00Z",
+                "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "refreshTokenExpiresAt": "2026-04-23T10:20:00Z",
+            }
+        }
+    )
+
+    tokenType: Literal["bearer"] = "bearer"
+    accessToken: str
+    accessTokenExpiresAt: datetime
+    refreshToken: str
+    refreshTokenExpiresAt: datetime
+
+
+class AuthResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "user": {
+                    "userId": "usr_123",
+                    "email": "user@example.com",
+                    "displayName": "Dachi",
+                    "workspaceRole": "owner",
+                    "createdAt": "2026-04-16T10:20:00Z",
+                },
+                "tokens": {
+                    "tokenType": "bearer",
+                    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                    "accessTokenExpiresAt": "2026-04-16T10:35:00Z",
+                    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                    "refreshTokenExpiresAt": "2026-04-23T10:20:00Z",
+                },
+            }
+        }
+    )
+
+    user: UserProfileResponse
+    tokens: TokenBundleResponse
+
+
+class CurrentUserResponse(UserProfileResponse):
+    pass
