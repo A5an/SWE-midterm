@@ -119,7 +119,7 @@ const openSocket = async (
   return { bucket, ws };
 };
 
-const rawInvalidHandshake = async (port: number): Promise<string> =>
+const rawWebSocketHandshake = async (port: number, token: string): Promise<string> =>
   new Promise((resolve, reject) => {
     const socket = createConnection({ host: "127.0.0.1", port });
     let response = "";
@@ -127,7 +127,7 @@ const rawInvalidHandshake = async (port: number): Promise<string> =>
     socket.on("connect", () => {
       socket.write(
         [
-          "GET /v1/collab?token=invalid-token HTTP/1.1",
+          `GET /v1/collab?token=${encodeURIComponent(token)} HTTP/1.1`,
           `Host: 127.0.0.1:${port}`,
           "Upgrade: websocket",
           "Connection: Upgrade",
@@ -146,6 +146,9 @@ const rawInvalidHandshake = async (port: number): Promise<string> =>
     socket.on("end", () => resolve(response));
     socket.on("error", reject);
   });
+
+const rawInvalidHandshake = async (port: number): Promise<string> =>
+  rawWebSocketHandshake(port, "invalid-token");
 
 const authHeaders = (accessToken?: string): Record<string, string> => {
   const headers: Record<string, string> = {
@@ -285,6 +288,9 @@ const main = async (): Promise<void> => {
   assert.equal(editorShareResponse.status, 201, "Owner must be able to share by username.");
   const editorShareBody = (await editorShareResponse.json()) as unknown;
   assert.equal(isDocumentShareResponse(editorShareBody), true);
+  const editorShare = editorShareBody as {
+    permission: { shareId: string };
+  };
 
   const viewerShareResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/shares`, {
     method: "POST",
@@ -588,6 +594,86 @@ const main = async (): Promise<void> => {
     offlineReplayMessage.text
   );
   console.log("reconnect: resync applied once and the latest shared text persisted");
+
+  const downgradedShareResponse = await fetch(
+    `${baseUrl}/v1/documents/${created.documentId}/shares/${editorShare.permission.shareId}`,
+    {
+      method: "PATCH",
+      headers: authHeaders(owner.accessToken),
+      body: JSON.stringify({
+        principalType: "user",
+        principalId: "usr_editor",
+        permissionLevel: "viewer"
+      })
+    }
+  );
+  assert.equal(downgradedShareResponse.status, 200, "Owner must be able to downgrade an existing share.");
+  const downgradedShareBody = (await downgradedShareResponse.json()) as unknown;
+  assert.equal(isDocumentShareResponse(downgradedShareBody), true);
+
+  const revokedUpdateMessage = {
+    type: "client.update",
+    sessionId: editorSession.sessionId,
+    clientSeq: 2,
+    mutationId: "mut-revoked-session",
+    baseRevision: firstAck.serverRevision,
+    text: "Revoked editor should not be able to write."
+  };
+  reconnectedEditor.ws.send(JSON.stringify(revokedUpdateMessage));
+
+  const revokedError = await waitForMessage<{
+    code: string;
+    message: string;
+    type: string;
+  }>(
+    reconnectedEditor.bucket,
+    (message) =>
+      message.type === "server.error" &&
+      message.code === "COLLAB_ACCESS_REVOKED"
+  );
+  assert.match(revokedError.message, /no longer has edit access/u);
+
+  const revokedOwnerUpdate = await waitForOptionalMessage(
+    ownerSocket.bucket,
+    (message) =>
+      message.type === "server.update" &&
+      message.mutationId === revokedUpdateMessage.mutationId,
+    600
+  );
+  assert.equal(revokedOwnerUpdate, null, "Revoked session tokens must not broadcast document mutations.");
+
+  const staleSessionHandshakeResponse = await rawWebSocketHandshake(address.port, editorSession.sessionToken);
+  assert.match(staleSessionHandshakeResponse, /HTTP\/1\.1 403 Forbidden/u);
+  assert.match(staleSessionHandshakeResponse, /AUTHZ_FORBIDDEN/u);
+
+  const downgradedSessionResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}/sessions`, {
+    method: "POST",
+    headers: authHeaders(editor.accessToken),
+    body: JSON.stringify({})
+  });
+  assert.equal(
+    downgradedSessionResponse.status,
+    403,
+    "Users downgraded to viewer must not bootstrap new collaboration sessions."
+  );
+  const downgradedSessionBody = (await downgradedSessionResponse.json()) as unknown;
+  assert.equal(isApiErrorEnvelope(downgradedSessionBody), true);
+  assert.equal(
+    (downgradedSessionBody as { error: { code: string } }).error.code,
+    "AUTHZ_FORBIDDEN"
+  );
+
+  const postDowngradeLoadResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    headers: authHeaders(owner.accessToken)
+  });
+  assert.equal(postDowngradeLoadResponse.status, 200);
+  const postDowngradeLoadBody = (await postDowngradeLoadResponse.json()) as unknown;
+  assert.equal(isDocumentDetailResponse(postDowngradeLoadBody), true);
+  assert.equal(
+    (postDowngradeLoadBody as { content: { content: Array<{ text: string }> } }).content.content[0]?.text,
+    offlineReplayMessage.text
+  );
+  console.log("rbac: downgraded editor session token can no longer mutate or reconnect");
 
   reconnectedEditor.ws.close();
   ownerSocket.ws.close();

@@ -472,6 +472,26 @@ const canEditDocument = (user: AccessTokenPayload, document: StoredDocument): bo
 const canManageDocumentShares = (user: AccessTokenPayload, document: StoredDocument): boolean =>
   resolveDocumentRole(user, document) === "owner";
 
+const buildCurrentAccessContext = (
+  userId: string,
+  fallbackName: string
+): AccessTokenPayload | null => {
+  const demoUser = lookupDemoUser(userId);
+  if (!demoUser) {
+    return null;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    tokenUse: "api_access",
+    sub: userId,
+    name: demoUser.displayName || fallbackName,
+    workspaceIds: demoUser.workspaceIds,
+    iat: now,
+    exp: now + ACCESS_TOKEN_TTL_SECONDS
+  };
+};
+
 const buildPermissionEntry = (
   userId: string,
   demoUser: DemoUser,
@@ -567,9 +587,19 @@ const rememberMutation = (state: CollaborationState, mutation: MutationRecord): 
 
 const writeUpgradeResponse = (socket: Duplex, statusCode: number, body: ApiErrorEnvelope): void => {
   const bodyText = JSON.stringify(body);
+  const statusText =
+    statusCode === 400
+      ? "Bad Request"
+      : statusCode === 401
+        ? "Unauthorized"
+        : statusCode === 403
+          ? "Forbidden"
+          : statusCode === 404
+            ? "Not Found"
+            : "Error";
   socket.write(
     [
-      `HTTP/1.1 ${statusCode} ${statusCode === 401 ? "Unauthorized" : "Bad Request"}`,
+      `HTTP/1.1 ${statusCode} ${statusText}`,
       "Connection: close",
       "Content-Type: application/json; charset=utf-8",
       `Content-Length: ${Buffer.byteLength(bodyText)}`,
@@ -1432,6 +1462,21 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
       return;
     }
 
+    const currentUser = buildCurrentAccessContext(verifiedToken.value.sub, verifiedToken.value.name);
+    if (!currentUser || !canEditDocument(currentUser, document)) {
+      writeUpgradeResponse(
+        socket,
+        403,
+        buildErrorEnvelope(
+          requestId,
+          "AUTHZ_FORBIDDEN",
+          `User '${verifiedToken.value.sub}' no longer has edit access to document '${verifiedToken.value.documentId}'.`,
+          false
+        )
+      );
+      return;
+    }
+
     const wsKey = request.headers["sec-websocket-key"];
     if (typeof wsKey !== "string" || wsKey.trim().length === 0) {
       writeUpgradeResponse(
@@ -1535,6 +1580,18 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           message: "Client sessionId does not match the authenticated websocket session."
         };
         sendWebSocketJson(socket, errorMessage);
+        return;
+      }
+
+      const currentUser = buildCurrentAccessContext(participant.userId, participant.displayName);
+      if (!currentUser || !canEditDocument(currentUser, document)) {
+        const errorMessage: CollaborationServerErrorMessage = {
+          type: "server.error",
+          code: "COLLAB_ACCESS_REVOKED",
+          message: `User '${participant.userId}' no longer has edit access to document '${document.metadata.documentId}'.`
+        };
+        sendWebSocketJson(socket, errorMessage);
+        closeConnection();
         return;
       }
 
