@@ -1,0 +1,33 @@
+LM Studio availability check:
+
+curl -sS -m 3 http://127.0.0.1:1234/v1/models
+
+Observed model list included:
+- nvidia.nemotron-mini-4b-instruct
+
+Real provider smoke test:
+- Started `apps/api` on `http://localhost:4010`
+- Env:
+  - `AI_PROVIDER=openai-compatible`
+  - `AI_PROVIDER_BASE_URL=http://127.0.0.1:1234/v1`
+  - `AI_PROVIDER_API_KEY=lm-studio`
+  - `AI_MODEL=nvidia.nemotron-mini-4b-instruct`
+- Demo login: `usr_assanali` / `demo-assanali`
+- Created a document, submitted a rewrite AI job, consumed the authenticated SSE stream to completion
+
+Result:
+
+{
+  "documentId": "doc_a3a2f7bb",
+  "jobId": "ai_7103cb55",
+  "statusEvents": 2,
+  "chunkCount": 22,
+  "finalType": "ai.completed",
+  "model": "nvidia.nemotron-mini-4b-instruct",
+  "outputPreview": " The paragraph's length could be shortened by removing unnecessary phrases, like \"is intentionally\" and \"so.\""
+}
+
+Interpretation:
+- The API used the real LM Studio provider path, not the demo provider.
+- The response streamed progressively (`chunkCount: 22`).
+- The model recorded in the completed SSE payload matches the required model.

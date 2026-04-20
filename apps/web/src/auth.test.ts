@@ -44,6 +44,7 @@ const makeSession = (): PersistedAuthSession => ({
     displayName: "Auth Tester",
     email: "user@example.com",
     userId: "usr_auth",
+    workspaceIds: ["ws_123"],
     workspaceRole: "owner"
   }
 });

@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "predev": "npm --workspace @swe-midterm/contracts run build",
-    "dev": "node --watch --experimental-strip-types src/server.ts",
+    "dev": "node --env-file-if-exists=../../.env --watch --experimental-strip-types src/server.ts",
     "prestart": "npm --workspace @swe-midterm/contracts run build",
-    "start": "node --experimental-strip-types src/server.ts",
+    "start": "node --env-file-if-exists=../../.env --experimental-strip-types src/server.ts",
     "pretest": "npm --workspace @swe-midterm/contracts run build",
     "test": "node --experimental-strip-types src/contract-test.ts",
+    "test:provider": "node --experimental-strip-types src/provider-test.ts",
     "pretypecheck": "npm --workspace @swe-midterm/contracts run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

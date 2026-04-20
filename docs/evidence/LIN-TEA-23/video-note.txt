@@ -1,0 +1,11 @@
+No screenshot or video asset was captured from this terminal-only Codex session.
+
+This bundle includes:
+- automated test logs
+- a real LM Studio API/SSE smoke transcript
+- docs and deviation updates
+
+Before final submission or PR merge, capture at least one browser screenshot or short clip showing:
+- the React-mounted editor shell running
+- a rewrite or summarize request streaming progressively
+- the suggestion controls and history panel visible

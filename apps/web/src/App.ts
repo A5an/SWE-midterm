@@ -63,6 +63,7 @@ import {
 } from "./document-model.ts";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
+const DEFAULT_AUTH_API_BASE_URL = "http://127.0.0.1:4021";
 const EMPTY_EDITOR_HTML = "<p><br></p>";
 
 interface PendingMutation {
@@ -180,22 +181,23 @@ const App = () => {
       return;
     }
 
-    mountApp(hostElement);
-
-    return () => {
-      hostElement.innerHTML = "";
-    };
+    return mountApp(hostElement);
   }, []);
 
   return createElement("div", { ref: hostRef });
 };
 
-export const mountApp = (root: HTMLElement): void => {
+export const mountApp = (root: HTMLElement): (() => void) => {
   const initialApiBase =
     typeof import.meta.env.VITE_API_BASE_URL === "string" &&
     import.meta.env.VITE_API_BASE_URL.trim().length > 0
       ? import.meta.env.VITE_API_BASE_URL.trim()
       : DEFAULT_API_BASE_URL;
+  const initialAuthApiBase =
+    typeof import.meta.env.VITE_AUTH_API_BASE_URL === "string" &&
+    import.meta.env.VITE_AUTH_API_BASE_URL.trim().length > 0
+      ? import.meta.env.VITE_AUTH_API_BASE_URL.trim()
+      : DEFAULT_AUTH_API_BASE_URL;
 
   root.innerHTML = `
     <div class="app-shell">
@@ -220,7 +222,7 @@ export const mountApp = (root: HTMLElement): void => {
         <div class="two-column auth-header-grid">
           <div class="form-grid">
             <label class="field-label" for="authApiBase">Auth API Base URL</label>
-            <input id="authApiBase" class="text-input" value="${initialApiBase}" />
+            <input id="authApiBase" class="text-input" value="${initialAuthApiBase}" />
             <p class="hint">
               Point this to the FastAPI backend that exposes <code>/v1/auth/register</code>,
               <code>/v1/auth/login</code>, <code>/v1/auth/refresh</code>, and the protected
@@ -317,7 +319,7 @@ export const mountApp = (root: HTMLElement): void => {
         </section>
       </section>
       <section class="panel">
-        <h2>Demo Login</h2>
+        <h2>Seeded User Quick Sign-In</h2>
         <div class="three-column">
           <div class="form-grid">
             <label class="field-label" for="userId">User ID</label>
@@ -333,9 +335,10 @@ export const mountApp = (root: HTMLElement): void => {
           </div>
         </div>
         <p class="hint">
-          Demo credentials: <code>usr_assanali</code> / <code>demo-assanali</code>,
+          Seeded credentials for fast local verification: <code>usr_assanali</code> / <code>demo-assanali</code>,
           <code>usr_alaa</code> / <code>demo-alaa</code>, <code>usr_dachi</code> / <code>demo-dachi</code>,
           <code>usr_editor</code> / <code>demo-editor</code>, <code>usr_viewer</code> / <code>demo-viewer</code>.
+          These users are seeded into the FastAPI auth store and reused by the Node collaboration/AI runtime.
         </p>
 
         <div class="session-bar">
@@ -417,8 +420,8 @@ export const mountApp = (root: HTMLElement): void => {
       <section class="panel">
         <h2>Collaboration Session</h2>
         <p class="hint">
-          Session bootstrap requires the signed API access token from Demo Login. The server then
-          issues a short-lived WebSocket session token for the document and syncs the same editor content live.
+          Session bootstrap requires the current signed API access token. The server then issues a
+          short-lived WebSocket session token for the document and syncs the same editor content live.
         </p>
         <div class="button-row button-row-left">
           <button id="joinButton" class="button button-primary" type="button">Join Session</button>
@@ -856,12 +859,29 @@ export const mountApp = (root: HTMLElement): void => {
     authSignOutButton.disabled = fastapiSession === null;
   };
 
+  const syncPrimaryAuthSession = (): void => {
+    if (fastapiSession) {
+      authSession = {
+        accessToken: fastapiSession.tokens.accessToken,
+        displayName: fastapiSession.user.displayName,
+        userId: fastapiSession.user.userId,
+        workspaceIds: fastapiSession.user.workspaceIds
+      };
+    }
+
+    updateAuthState();
+    renderDocumentList();
+    updateDocumentRoleState();
+    renderAiState();
+  };
+
   const applyFastapiSession = (
     session: PersistedAuthSession | null,
     options?: {
       persist?: boolean;
     }
   ): void => {
+    const previousFastapiAccessToken = fastapiSession?.tokens.accessToken ?? null;
     fastapiSession = session;
     fastapiProfile = session?.user ?? null;
 
@@ -874,6 +894,19 @@ export const mountApp = (root: HTMLElement): void => {
       clearPersistedAuthSession(window.localStorage);
     }
 
+    if (
+      session === null &&
+      previousFastapiAccessToken !== null &&
+      authSession?.accessToken === previousFastapiAccessToken
+    ) {
+      authSession = null;
+      updateAuthState();
+      renderDocumentList();
+      updateDocumentRoleState();
+      renderAiState();
+    } else {
+      syncPrimaryAuthSession();
+    }
     updateFastapiAuthState();
     renderProtectedProfile();
   };
@@ -980,6 +1013,22 @@ export const mountApp = (root: HTMLElement): void => {
     }
   };
 
+  const refreshMainAppAfterAuthBridge = async (): Promise<void> => {
+    resetDocumentAdminState();
+
+    if (sessionInfo) {
+      resetCollaboration();
+    }
+
+    await refreshDocumentList();
+    if (currentDocument) {
+      await loadDocumentById(currentDocument.documentId);
+    } else {
+      await refreshAiHistory();
+    }
+    renderAiState();
+  };
+
   const updateRevisionState = (revision: number): void => {
     currentServerRevision = revision;
     revisionState.textContent = String(revision);
@@ -1076,7 +1125,7 @@ export const mountApp = (root: HTMLElement): void => {
     }
 
     if (!authSession) {
-      permissionsList.innerHTML = `<li class="history-empty">Sign in with a demo user to inspect document access.</li>`;
+      permissionsList.innerHTML = `<li class="history-empty">Sign in to inspect document access.</li>`;
       return;
     }
 
@@ -1136,7 +1185,7 @@ export const mountApp = (root: HTMLElement): void => {
     }
 
     if (!authSession) {
-      versionList.innerHTML = `<li class="history-empty">Sign in with a demo user to view document versions.</li>`;
+      versionList.innerHTML = `<li class="history-empty">Sign in to view document versions.</li>`;
       return;
     }
 
@@ -2434,6 +2483,7 @@ export const mountApp = (root: HTMLElement): void => {
       applyFastapiSession(session);
       navigateAuthRoute("workspace");
       await loadProtectedProfile("Signed in successfully. Protected workspace is authorized.");
+      await refreshMainAppAfterAuthBridge();
     } catch (error) {
       setAuthLifecycleMessage(describeFastapiError("Login failed", error));
     }
@@ -2452,6 +2502,7 @@ export const mountApp = (root: HTMLElement): void => {
       applyFastapiSession(session);
       navigateAuthRoute("workspace");
       await loadProtectedProfile("Registration completed. Protected workspace is authorized.");
+      await refreshMainAppAfterAuthBridge();
     } catch (error) {
       setAuthLifecycleMessage(describeFastapiError("Registration failed", error));
     }
@@ -2459,6 +2510,9 @@ export const mountApp = (root: HTMLElement): void => {
 
   authRestoreButton.addEventListener("click", async () => {
     await restoreFastapiSession();
+    if (fastapiSession) {
+      await refreshMainAppAfterAuthBridge();
+    }
   });
 
   authProtectedFetchButton.addEventListener("click", async () => {
@@ -2495,12 +2549,14 @@ export const mountApp = (root: HTMLElement): void => {
     authApiBaseInput.value = currentAuthApiBase();
   });
 
-  window.addEventListener("hashchange", () => {
+  const handleAuthHashChange = (): void => {
     renderAuthRoute();
     if (currentAuthRoute() === "workspace" && fastapiSession && fastapiProfile === null) {
       void loadProtectedProfile("Protected route restored after navigation.");
     }
-  });
+  };
+
+  window.addEventListener("hashchange", handleAuthHashChange);
 
   createForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2558,7 +2614,7 @@ export const mountApp = (root: HTMLElement): void => {
   });
 
   loginButton.addEventListener("click", async () => {
-    setStatus("Signing in with demo credentials...");
+    setStatus("Signing in with seeded user credentials...");
 
     const response = await fetch(`${currentApiBase()}/v1/auth/demo-login`, {
       method: "POST",
@@ -2573,12 +2629,12 @@ export const mountApp = (root: HTMLElement): void => {
     const payload = await readJson(response);
 
     if (!response.ok) {
-      handleApiFailure("Demo login failed", payload);
+      handleApiFailure("Seeded sign-in failed", payload);
       return;
     }
 
     if (!isDemoLoginResponse(payload)) {
-      setStatus("Demo login failed: backend response does not match auth contract.");
+      setStatus("Seeded sign-in failed: backend response does not match auth contract.");
       return;
     }
 
@@ -2853,6 +2909,18 @@ export const mountApp = (root: HTMLElement): void => {
   resetDocumentAdminState();
   syncToolbarState();
   void restoreFastapiSession("Checking for a saved auth session...");
+
+  return () => {
+    manualDisconnect = true;
+    clearAutosaveTimer();
+    clearSendTimer();
+    clearTypingTimer();
+    clearReconnectTimer();
+    closeAiStream();
+    closeSocket();
+    window.removeEventListener("hashchange", handleAuthHashChange);
+    root.innerHTML = "";
+  };
 };
 
 export default App;

@@ -3,7 +3,7 @@
 Repository for the Assignment 2 implementation of the **Collaborative Document Editor with AI Writing Assistant**.
 
 This repo currently contains:
-- a runnable Node/Vite baseline used for the integrated collaboration + AI demo
+- a runnable Node/Vite baseline used for the integrated document, collaboration, and AI demo
 - a FastAPI auth/document proof in `backend/` for the required Python backend direction
 - assignment documentation, deviations, and per-issue evidence bundles in `docs/`
 
@@ -16,11 +16,13 @@ Implemented and demo-ready in the main runnable baseline:
 - document sharing with `owner` / `editor` / `viewer`
 - authenticated collaboration session bootstrap, presence, and reconnect replay
 - AI rewrite/summarize streaming with cancel, compare, apply/reject/edit/undo, and history
+- a minimal React shell in `apps/web` that mounts the existing imperative UI without a full rewrite
+- an env-configurable AI provider boundary that supports LM Studio via OpenAI-compatible streaming
 
 Known implementation boundary:
 - collaboration and AI still run inside `apps/api`
 - `apps/collab` and `apps/ai-worker` remain placeholders while the baseline stays single-backend runnable
-- the FastAPI backend currently covers auth plus protected create/load proof, not full collaboration and AI parity
+- the FastAPI backend currently covers canonical auth plus protected create/load proof, not full collaboration and AI parity
 
 Deviations from the Assignment 1 architecture are tracked in [DEVIATIONS.md](DEVIATIONS.md).
 
@@ -28,7 +30,7 @@ Deviations from the Assignment 1 architecture are tracked in [DEVIATIONS.md](DEV
 
 - Node.js `>= 22`
 - npm `>= 10`
-- Python `>= 3.11` if you want to run the FastAPI proof in `backend/`
+- Python `>= 3.9` (`3.11+` preferred for the FastAPI proof)
 - `make` is optional
 
 ## Quick Start
@@ -42,7 +44,9 @@ From a clean clone:
 What `./run.sh` does:
 - installs workspace dependencies with `npm ci` when `node_modules/` is missing
 - creates `.env` from `.env.example` when `.env` is missing
-- starts the API at `http://localhost:4000`
+- sources `.env` so local overrides are applied consistently
+- starts the Node API at `http://localhost:4000`
+- starts the FastAPI auth backend at `http://127.0.0.1:4021`
 - starts the web app on Vite's default port (`http://localhost:5173`) or the next free port if `5173` is already in use
 
 Alternative entrypoint:
@@ -51,7 +55,7 @@ Alternative entrypoint:
 make run
 ```
 
-Stop both dev servers with `Ctrl+C`.
+Stop all dev servers with `Ctrl+C`.
 
 ## Environment Setup
 
@@ -64,11 +68,25 @@ cp .env.example .env
 Important variables:
 - `PORT`: Node API port used by `apps/api`
 - `VITE_API_BASE_URL`: web app base URL for the Node API
-- `JWT_ACCESS_SECRET`: used by the Node API demo auth/session flow and by the FastAPI auth proof
+- `VITE_AUTH_API_BASE_URL`: web app base URL for the FastAPI auth workspace
+- `JWT_ACCESS_SECRET`: used by the Node seeded sign-in/session flow and by the FastAPI auth proof
 - `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL_SECONDS`, `JWT_REFRESH_TTL_SECONDS`, `JWT_ISSUER`: used by the FastAPI auth flow
-- `AI_PROVIDER_API_KEY`, `AI_PROVIDER_BASE_URL`: optional overrides for AI integration experiments
+- `FASTAPI_AUTH_BASE_URL`: Node auth-bridge target for canonical FastAPI user resolution
+- `AI_PROVIDER`: `demo` by default, `openai-compatible` for LM Studio
+- `AI_PROVIDER_API_KEY`, `AI_PROVIDER_BASE_URL`, `AI_MODEL`: OpenAI-compatible AI provider settings
 
 The committed defaults are for local development only. Replace the JWT secrets outside local demo use.
+
+LM Studio example:
+
+```bash
+AI_PROVIDER=openai-compatible
+AI_PROVIDER_BASE_URL=http://127.0.0.1:1234/v1
+AI_PROVIDER_API_KEY=lm-studio
+AI_MODEL=nvidia.nemotron-mini-4b-instruct
+```
+
+The frontend contract does not change when you switch providers. The existing `/v1/documents/{id}/ai/jobs` API, SSE stream, cancel flow, compare/apply/reject/edit/undo controls, and history panel remain the same.
 
 ## Manual Run
 
@@ -78,16 +96,29 @@ Install dependencies:
 npm install
 ```
 
+Recommended Python setup for the FastAPI proof:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+```
+
 Start the integrated baseline:
 
 ```bash
 npm run dev:api
+python3 -m uvicorn backend.app.main:app --reload --port 4021
 npm run dev:web
 ```
 
 Open the app at the Vite URL printed in the terminal (`http://localhost:5173` by default).
 
-Demo users for the integrated baseline:
+Recommended sign-in flow:
+- use `#auth/register` or `#auth/login` against the FastAPI backend for the canonical Assignment 2 auth path
+- use the seeded-user quick sign-in panel only when you need a fast local reset with known users
+
+Seeded users for fast local verification:
 - `usr_assanali` / `demo-assanali`
 - `usr_alaa` / `demo-alaa`
 - `usr_dachi` / `demo-dachi`
@@ -97,12 +128,6 @@ Demo users for the integrated baseline:
 ## FastAPI Proof
 
 The Assignment 2 FastAPI proof lives in `backend/`.
-
-Install Python dependencies:
-
-```bash
-python3 -m pip install -r backend/requirements.txt
-```
 
 Run the FastAPI app:
 
@@ -118,6 +143,8 @@ Frontend auth proof routes in `apps/web`:
 - `#auth/login`
 - `#auth/register`
 - `#auth/workspace`
+
+The integrated app also reuses the FastAPI session for Node-backed documents, collaboration, and AI because `apps/api` accepts the same access token.
 
 To exercise the FastAPI auth flow from the web app:
 1. Start the FastAPI app on port `4021`.
@@ -138,6 +165,13 @@ Backend contract/integration test suite:
 
 ```bash
 npm test
+```
+
+Focused frontend and AI provider tests:
+
+```bash
+npm --workspace @swe-midterm/web run test
+npm --workspace @swe-midterm/api run test:provider
 ```
 
 Production build checks:

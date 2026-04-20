@@ -1,0 +1,8 @@
+Draft PR:
+- `https://github.com/A5an/SWE-midterm/pull/18`
+
+Head branch:
+- `feat/LIN-TEA-23-auth-bridge-react-lm-studio`
+
+Base branch:
+- `feat/LIN-TEA-22-ai-provider-prompts`

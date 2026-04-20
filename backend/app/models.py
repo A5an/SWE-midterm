@@ -166,6 +166,7 @@ class UserProfileResponse(BaseModel):
                 "email": "user@example.com",
                 "displayName": "Dachi",
                 "workspaceRole": "owner",
+                "workspaceIds": ["ws_123"],
                 "createdAt": "2026-04-16T10:20:00Z",
             }
         }
@@ -175,6 +176,7 @@ class UserProfileResponse(BaseModel):
     email: str
     displayName: str
     workspaceRole: WorkspaceRole = "owner"
+    workspaceIds: list[str] = Field(default_factory=list)
     createdAt: datetime
 
 

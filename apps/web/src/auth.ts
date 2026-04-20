@@ -10,6 +10,7 @@ export interface AuthUserProfile {
   email: string;
   userId: string;
   workspaceRole: "owner" | "editor" | "commenter" | "viewer";
+  workspaceIds: string[];
 }
 
 export interface AuthTokenBundle {
@@ -95,6 +96,8 @@ export const isAuthUserProfile = (value: unknown): value is AuthUserProfile => {
     isNonEmptyString(value.email) &&
     isNonEmptyString(value.displayName) &&
     isNonEmptyString(value.createdAt) &&
+    Array.isArray(value.workspaceIds) &&
+    value.workspaceIds.every((workspaceId) => isNonEmptyString(workspaceId)) &&
     (value.workspaceRole === "owner" ||
       value.workspaceRole === "editor" ||
       value.workspaceRole === "commenter" ||

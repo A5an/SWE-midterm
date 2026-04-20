@@ -1,0 +1,8 @@
+Implementation branch:
+- `feat/LIN-TEA-23-auth-bridge-react-lm-studio`
+
+Primary implementation commit:
+- `21fc5af6a2d79ab9b265675ceb2de54d45c94755`
+
+Base branch used for the PR:
+- `feat/LIN-TEA-22-ai-provider-prompts`
