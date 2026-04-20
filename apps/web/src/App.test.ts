@@ -1,3 +1,6 @@
+import { createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { act } from "react-dom/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("quill", () => {
@@ -95,7 +98,7 @@ vi.mock("quill", () => {
   };
 });
 
-import { mountApp } from "./App.ts";
+import App, { mountApp } from "./App.ts";
 
 const flush = async (): Promise<void> => {
   await Promise.resolve();
@@ -283,5 +286,18 @@ describe("mountApp", () => {
       expect.objectContaining({ method: "PATCH" })
     );
     expect(root.querySelector("#autosaveState")?.textContent).toContain("Saved");
+  });
+
+  it("renders the imperative app through the React shell", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    const reactRoot = createRoot(root);
+
+    await act(async () => {
+      reactRoot.render(createElement(App));
+    });
+
+    expect(root.textContent).toContain("Assignment 2 Core App Baseline");
+    reactRoot.unmount();
   });
 });
