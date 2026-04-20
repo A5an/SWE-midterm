@@ -25,11 +25,12 @@
 - `build.log`: root production build run
 - `typecheck.log`: root typecheck run
 - `changed-files.txt`: scoped file list for this issue
-- `commit-hash.txt`: commit placeholder until the branch is committed
-- `pr-link.txt`: PR placeholder until the branch is pushed and opened
+- `commit-hash.txt`: implementation commit for this issue
+- `pr-link.txt`: GitHub pull request URL
 - `notes.txt`: non-applicable evidence notes
 
 ## Notes
 - The assignment PDF is present in the repo, but text extraction was not available in this environment. Acceptance criteria were therefore derived from the repository source-of-truth docs plus the explicit LIN-TEA-21 issue description.
 - No API or WebSocket transcript was required for this issue because it only changes the frontend bootstrap mechanism.
 - No `DEVIATIONS.md` update was needed because this task aligns the implementation with the existing documented React frontend direction rather than changing scope, architecture, or process.
+- Pull request: `https://github.com/A5an/SWE-midterm/pull/15`
