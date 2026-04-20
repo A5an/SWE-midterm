@@ -9,8 +9,19 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f .env && -f .env.example ]]; then
+if [[ ! -d node_modules ]]; then
+  if [[ -f package-lock.json ]]; then
+    echo "Installing workspace dependencies with npm ci..."
+    npm ci
+  else
+    echo "Installing workspace dependencies with npm install..."
+    npm install
+  fi
+fi
+
+if [[ ! -f .env ]]; then
   cp .env.example .env
+  echo "Created .env from .env.example."
 fi
 
 if [[ -f .env ]]; then
@@ -34,16 +45,17 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-PYTHON_BIN="${PYTHON_BIN:-}"
-if [[ -z "$PYTHON_BIN" && -x "$ROOT_DIR/.venv/bin/python3" ]]; then
-  PYTHON_BIN="$ROOT_DIR/.venv/bin/python3"
-elif [[ -z "$PYTHON_BIN" && -x "$ROOT_DIR/.venv/bin/python" ]]; then
-  PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
-elif [[ -z "$PYTHON_BIN" ]]; then
-  PYTHON_BIN="python3"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -x "$ROOT_DIR/.venv/bin/python3" ]]; then
+    PYTHON_BIN="$ROOT_DIR/.venv/bin/python3"
+  elif [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+    PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+  else
+    PYTHON_BIN="$(command -v python3 || true)"
+  fi
 fi
 
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
   echo "A Python interpreter is required to start the FastAPI auth backend." >&2
   exit 1
 fi
@@ -56,12 +68,15 @@ fi
 
 FASTAPI_PORT="${FASTAPI_PORT:-4021}"
 
-echo "Starting Node API (http://localhost:${PORT:-4000}), FastAPI auth backend (http://127.0.0.1:${FASTAPI_PORT}), and web app (http://localhost:5173)..."
+echo "Starting Node API (http://localhost:${PORT:-4000}), FastAPI auth backend (http://127.0.0.1:${FASTAPI_PORT}), and web app (default http://localhost:5173)..."
 npm run dev:api &
 API_PID=$!
 "$PYTHON_BIN" -m uvicorn backend.app.main:app --reload --port "$FASTAPI_PORT" &
 FASTAPI_PID=$!
 npm run dev:web &
 WEB_PID=$!
+
+echo "Run script is now attached to all local services."
+echo "Press Ctrl+C to stop them."
 
 wait "$API_PID" "$FASTAPI_PID" "$WEB_PID"
