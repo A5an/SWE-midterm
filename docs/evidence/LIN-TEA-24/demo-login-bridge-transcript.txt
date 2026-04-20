@@ -1,0 +1,21 @@
+### POST /v1/auth/demo-login
+status: 200
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlblVzZSI6ImFwaV9hY2Nlc3MiLCJzdWIiOiJ1c3JfYWxhYSIsIm5hbWUiOiJBbGFhIiwiZW1haWwiOiJhbGFhQGRlbW8ubG9jYWwiLCJ3b3Jrc3BhY2VJZHMiOlsid3NfMTIzIl0sImlhdCI6MTc3NjY2Njc2MiwiZXhwIjoxNzc2NjY3NjYyfQ.REITr8uedicUuFbP_pkPGei6dmJJOFv00SuB9jquQf0",
+  "userId": "usr_alaa",
+  "displayName": "Alaa",
+  "workspaceIds": [
+    "ws_123"
+  ],
+  "issuedAt": "2026-04-20T06:32:42.000Z",
+  "expiresAt": "2026-04-20T06:47:42.000Z"
+}
+
+### Decoded access-token window
+{
+  "iat": 1776666762,
+  "exp": 1776667662,
+  "ttlSeconds": 900,
+  "issuedAtIso": "2026-04-20T06:32:42.000Z",
+  "expiresAtIso": "2026-04-20T06:47:42.000Z"
+}

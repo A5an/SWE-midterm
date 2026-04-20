@@ -1,0 +1,11 @@
+Base commit before the LIN-TEA-24 implementation:
+27b489a11838454f8d5bfd08e58a6f55b3051f59
+
+Implementation commit:
+75c87e8daf4580e371a29d6df65582aded5ab990
+
+Branch:
+feat/LIN-TEA-24-auth-compliance
+
+PR:
+https://github.com/A5an/SWE-midterm/pull/19

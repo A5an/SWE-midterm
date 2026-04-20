@@ -193,8 +193,13 @@ interface KnownUser {
   workspaceIds: string[];
 }
 
+const parsePositiveInt = (rawValue: string | undefined, fallbackValue: number): number => {
+  const parsed = Number.parseInt(rawValue?.trim() ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackValue;
+};
+
 const DEFAULT_PORT = Number(process.env.PORT?.trim() || 4000);
-const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60;
+const ACCESS_TOKEN_TTL_SECONDS = parsePositiveInt(process.env.JWT_ACCESS_TTL_SECONDS, 900);
 const SESSION_TOKEN_TTL_SECONDS = 20 * 60;
 const AI_STREAM_TOKEN_TTL_SECONDS = 20 * 60;
 const SESSION_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET?.trim() || "dev-access-secret-change-me";
@@ -524,6 +529,22 @@ const verifyAccessToken = (
   };
 };
 
+const toIsoTimestamp = (unixSeconds: number): string => new Date(unixSeconds * 1000).toISOString();
+
+const getAccessTokenLifetime = (
+  accessToken: string
+): { issuedAt: string; expiresAt: string } | null => {
+  const verified = verifyAccessToken(accessToken);
+  if (!verified.ok) {
+    return null;
+  }
+
+  return {
+    issuedAt: toIsoTimestamp(verified.value.iat),
+    expiresAt: toIsoTimestamp(verified.value.exp)
+  };
+};
+
 const verifySessionToken = (
   token: string
 ): { ok: true; value: SessionTokenPayload } | { ok: false; reason: string } => {
@@ -814,6 +835,8 @@ const loginWithFastApiDemoUser = async (
       value: {
         accessToken: string;
         displayName: string;
+        expiresAt: string;
+        issuedAt: string;
         userId: string;
         workspaceIds: string[];
       };
@@ -867,6 +890,15 @@ const loginWithFastApiDemoUser = async (
       typeof payload.user?.displayName === "string" &&
       Array.isArray(payload.user?.workspaceIds)
     ) {
+      const accessTokenLifetime = getAccessTokenLifetime(payload.tokens.accessToken);
+      if (!accessTokenLifetime) {
+        return {
+          ok: false,
+          reason: "FastAPI login returned an unusable access token.",
+          statusCode: 502
+        };
+      }
+
       upsertKnownUser({
         userId: payload.user.userId,
         displayName: payload.user.displayName,
@@ -880,7 +912,9 @@ const loginWithFastApiDemoUser = async (
           accessToken: payload.tokens.accessToken,
           userId: payload.user.userId,
           displayName: payload.user.displayName,
-          workspaceIds: payload.user.workspaceIds
+          workspaceIds: payload.user.workspaceIds,
+          issuedAt: accessTokenLifetime.issuedAt,
+          expiresAt: accessTokenLifetime.expiresAt
         }
       };
     }
@@ -912,7 +946,9 @@ const loginWithFastApiDemoUser = async (
       accessToken,
       userId,
       displayName: demoUser.displayName,
-      workspaceIds: demoUser.workspaceIds
+      workspaceIds: demoUser.workspaceIds,
+      issuedAt: toIsoTimestamp(now),
+      expiresAt: toIsoTimestamp(now + ACCESS_TOKEN_TTL_SECONDS)
     }
   };
 };
@@ -1587,8 +1623,8 @@ export const createApiServer = (
           userId: fastApiLogin.value.userId,
           displayName: fastApiLogin.value.displayName,
           workspaceIds: fastApiLogin.value.workspaceIds,
-          issuedAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000).toISOString()
+          issuedAt: fastApiLogin.value.issuedAt,
+          expiresAt: fastApiLogin.value.expiresAt
         });
         return;
       } catch (error) {

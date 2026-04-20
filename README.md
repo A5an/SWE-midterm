@@ -69,8 +69,8 @@ Important variables:
 - `PORT`: Node API port used by `apps/api`
 - `VITE_API_BASE_URL`: web app base URL for the Node API
 - `VITE_AUTH_API_BASE_URL`: web app base URL for the FastAPI auth workspace
-- `JWT_ACCESS_SECRET`: used by the Node seeded sign-in/session flow and by the FastAPI auth proof
-- `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL_SECONDS`, `JWT_REFRESH_TTL_SECONDS`, `JWT_ISSUER`: used by the FastAPI auth flow
+- `JWT_ACCESS_SECRET`: shared signing secret for FastAPI access tokens; `apps/api` uses it to validate FastAPI-issued Bearer tokens and to mint only short-lived local fallback/session tokens
+- `JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL_SECONDS`, `JWT_REFRESH_TTL_SECONDS`, `JWT_ISSUER`: used by the FastAPI auth flow; `JWT_ACCESS_TTL_SECONDS` is the short-lived access-token TTL also reflected by the Node demo-login bridge
 - `FASTAPI_AUTH_BASE_URL`: Node auth-bridge target for canonical FastAPI user resolution
 - `AI_PROVIDER`: `demo` by default, `openai-compatible` for LM Studio
 - `AI_PROVIDER_API_KEY`, `AI_PROVIDER_BASE_URL`, `AI_MODEL`: OpenAI-compatible AI provider settings
@@ -116,7 +116,7 @@ Open the app at the Vite URL printed in the terminal (`http://localhost:5173` by
 
 Recommended sign-in flow:
 - use `#auth/register` or `#auth/login` against the FastAPI backend for the canonical Assignment 2 auth path
-- use the seeded-user quick sign-in panel only when you need a fast local reset with known users
+- use the seeded-user quick sign-in panel only when you need a fast local reset with known users; it bridges into the same short-lived FastAPI-style access-token model instead of issuing a separate long-lived demo token
 
 Seeded users for fast local verification:
 - `usr_assanali` / `demo-assanali`
@@ -144,7 +144,9 @@ Frontend auth proof routes in `apps/web`:
 - `#auth/register`
 - `#auth/workspace`
 
-The integrated app also reuses the FastAPI session for Node-backed documents, collaboration, and AI because `apps/api` accepts the same access token.
+The FastAPI proof now requires `Authorization: Bearer <access token>` on `POST /v1/documents` and `GET /v1/documents/{documentId}` and returns the standard 401 error envelope when auth is missing or invalid.
+
+The integrated app also reuses the FastAPI session for Node-backed documents, collaboration, and AI because `apps/api` accepts the same access token. The seeded `POST /v1/auth/demo-login` bridge returns the real short-lived JWT lifetime from that access token rather than presenting a separate 8-hour access window. Collaboration session tokens and AI stream tokens remain separate short-lived service tokens inside `apps/api`.
 
 To exercise the FastAPI auth flow from the web app:
 1. Start the FastAPI app on port `4021`.

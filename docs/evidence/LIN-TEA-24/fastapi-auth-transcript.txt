@@ -1,0 +1,55 @@
+### POST /v1/documents without Authorization
+status: 401
+{
+  "error": {
+    "code": "AUTHN_REQUIRED",
+    "message": "Bearer access token is required.",
+    "retryable": false,
+    "requestId": "req_8130245a0023",
+    "details": null
+  }
+}
+
+### POST /v1/documents with Bearer token
+status: 201
+{
+  "documentId": "doc_2f12424b",
+  "workspaceId": "ws_123",
+  "title": "Protected transcript",
+  "ownerRole": "owner",
+  "currentVersionId": "ver_001",
+  "createdAt": "2026-04-20T06:32:44.339110Z"
+}
+
+### GET /v1/documents/doc_2f12424b without Authorization
+status: 401
+{
+  "error": {
+    "code": "AUTHN_REQUIRED",
+    "message": "Bearer access token is required.",
+    "retryable": false,
+    "requestId": "req_b9075f097c9b",
+    "details": null
+  }
+}
+
+### GET /v1/documents/doc_2f12424b with Bearer token
+status: 200
+{
+  "documentId": "doc_2f12424b",
+  "workspaceId": "ws_123",
+  "title": "Protected transcript",
+  "ownerRole": "owner",
+  "currentVersionId": "ver_001",
+  "createdAt": "2026-04-20T06:32:44.339110Z",
+  "content": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "text": "Protected document body."
+      }
+    ]
+  },
+  "updatedAt": "2026-04-20T06:32:44.339110Z"
+}

@@ -1,0 +1,4 @@
+PR URL: https://github.com/A5an/SWE-midterm/pull/19
+Branch: feat/LIN-TEA-24-auth-compliance
+Title: fix: align FastAPI and Node auth lifecycle with Assignment 2 compliance
+State: draft

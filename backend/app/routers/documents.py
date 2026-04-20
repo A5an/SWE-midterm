@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import ValidationError
 
 from backend.app.errors import ApiApplicationError, error_message_from_validation
@@ -12,6 +12,8 @@ from backend.app.models import (
     DocumentDetailResponse,
     DocumentMetadataResponse,
 )
+from backend.app.routers.auth import get_current_user
+from backend.app.services.auth_store import StoredUser
 from backend.app.services.document_store import DocumentStore
 
 router = APIRouter(tags=["documents"])
@@ -76,11 +78,14 @@ async def health(request: Request) -> dict[str, str]:
     "/v1/documents",
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentMetadataResponse,
-    responses={400: {"model": ApiErrorEnvelope}},
+    responses={400: {"model": ApiErrorEnvelope}, 401: {"model": ApiErrorEnvelope}},
     summary="Create a document",
-    description="Creates a document in the in-memory PoC store and returns document metadata.",
+    description="Creates a document in the in-memory PoC store and returns document metadata for an authenticated user.",
 )
-async def create_document(request: Request) -> DocumentMetadataResponse:
+async def create_document(
+    request: Request,
+    _: StoredUser = Depends(get_current_user),
+) -> DocumentMetadataResponse:
     return await _create_document(request)
 
 
@@ -88,29 +93,40 @@ async def create_document(request: Request) -> DocumentMetadataResponse:
     "/documents",
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentMetadataResponse,
-    responses={400: {"model": ApiErrorEnvelope}},
+    responses={400: {"model": ApiErrorEnvelope}, 401: {"model": ApiErrorEnvelope}},
     include_in_schema=False,
 )
-async def create_document_compat(request: Request) -> DocumentMetadataResponse:
+async def create_document_compat(
+    request: Request,
+    _: StoredUser = Depends(get_current_user),
+) -> DocumentMetadataResponse:
     return await _create_document(request)
 
 
 @router.get(
     "/v1/documents/{document_id}",
     response_model=DocumentDetailResponse,
-    responses={404: {"model": ApiErrorEnvelope}},
+    responses={401: {"model": ApiErrorEnvelope}, 404: {"model": ApiErrorEnvelope}},
     summary="Load a document",
-    description="Returns document metadata plus the current content snapshot.",
+    description="Returns document metadata plus the current content snapshot for an authenticated user.",
 )
-async def load_document(document_id: str, request: Request) -> DocumentDetailResponse:
+async def load_document(
+    document_id: str,
+    request: Request,
+    _: StoredUser = Depends(get_current_user),
+) -> DocumentDetailResponse:
     return _load_document(document_id, request)
 
 
 @router.get(
     "/documents/{document_id}",
     response_model=DocumentDetailResponse,
-    responses={404: {"model": ApiErrorEnvelope}},
+    responses={401: {"model": ApiErrorEnvelope}, 404: {"model": ApiErrorEnvelope}},
     include_in_schema=False,
 )
-async def load_document_compat(document_id: str, request: Request) -> DocumentDetailResponse:
+async def load_document_compat(
+    document_id: str,
+    request: Request,
+    _: StoredUser = Depends(get_current_user),
+) -> DocumentDetailResponse:
     return _load_document(document_id, request)
