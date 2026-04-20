@@ -1,0 +1,2 @@
+Screenshot/video evidence: not required for this issue because the change is an internal bootstrap refactor and existing UI behavior is already covered by automated validation.
+API/WebSocket transcript: not applicable because no backend contract or transport behavior changed.

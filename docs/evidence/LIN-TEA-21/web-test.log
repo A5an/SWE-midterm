@@ -1,0 +1,21 @@
+
+> @swe-midterm/web@0.1.0 pretest
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/web@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.4 /Users/assanali.aukenov/Projects/SWE-midterm/apps/web
+
+
+ Test Files  5 passed (5)
+      Tests  18 passed (18)
+   Start at  05:53:37
+   Duration  575ms (transform 194ms, setup 0ms, import 294ms, tests 112ms, environment 1.51s)
+

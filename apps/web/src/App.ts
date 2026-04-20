@@ -1,3 +1,4 @@
+import { createElement, useEffect, useRef } from "react";
 import Quill from "quill";
 
 import "./App.css";
@@ -167,6 +168,26 @@ const renderDocumentListMarkup = (
       `;
     })
     .join("");
+};
+
+const App = () => {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const hostElement = hostRef.current;
+
+    if (!hostElement) {
+      return;
+    }
+
+    mountApp(hostElement);
+
+    return () => {
+      hostElement.innerHTML = "";
+    };
+  }, []);
+
+  return createElement("div", { ref: hostRef });
 };
 
 export const mountApp = (root: HTMLElement): void => {
@@ -2833,3 +2854,5 @@ export const mountApp = (root: HTMLElement): void => {
   syncToolbarState();
   void restoreFastapiSession("Checking for a saved auth session...");
 };
+
+export default App;

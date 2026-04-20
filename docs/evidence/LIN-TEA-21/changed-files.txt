@@ -1,0 +1,8 @@
+apps/web/index.html
+apps/web/package.json
+apps/web/src/App.test.ts
+apps/web/src/App.ts
+apps/web/src/main.ts
+apps/web/src/main.tsx
+apps/web/tsconfig.json
+package-lock.json
