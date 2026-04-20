@@ -1,6 +1,8 @@
-PR not opened yet.
+Draft PR:
+- `https://github.com/A5an/SWE-midterm/pull/18`
 
-Suggested branch:
+Head branch:
 - `feat/LIN-TEA-23-auth-bridge-react-lm-studio`
 
-Update this file with the PR URL after opening the branch against the correct non-`main` target.
+Base branch:
+- `feat/LIN-TEA-22-ai-provider-prompts`

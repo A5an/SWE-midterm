@@ -1,6 +1,8 @@
-Pending local commit for `feat/LIN-TEA-23-auth-bridge-react-lm-studio`.
+Implementation branch:
+- `feat/LIN-TEA-23-auth-bridge-react-lm-studio`
 
-Current branch base before commit:
-- `17d7187`
+Primary implementation commit:
+- `21fc5af6a2d79ab9b265675ceb2de54d45c94755`
 
-Update this file with the final implementation commit hash before opening the PR.
+Base branch used for the PR:
+- `feat/LIN-TEA-22-ai-provider-prompts`
