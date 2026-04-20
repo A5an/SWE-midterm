@@ -1,0 +1,73 @@
+Working-tree clean clone path: /var/folders/t6/3r4kszmn3538y17m9898db940000gp/T/tmp.xMKafpSMSc/repo
+Has .env before run? no
+Has node_modules before run? no
+Startup ready: 1
+Detected web URL: http://localhost:5174/
+Has .env after run? yes
+Has node_modules after run? yes
+--- curl /health ---
+{"status":"ok","requestId":"req_8c96550e-5d6"}
+--- curl / (web) ---
+<!doctype html>
+<html lang="en">
+  <head>
+    <script type="module" src="/@vite/client"></script>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SWE Midterm PoC Web</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.ts"></script>
+
+--- run.sh output tail ---
+Installing workspace dependencies with npm ci...
+npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+
+added 185 packages, and audited 189 packages in 994ms
+
+38 packages are looking for funding
+  run `npm fund` for details
+
+3 vulnerabilities (1 low, 2 moderate)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+Created .env from .env.example.
+Starting API (default http://localhost:4000) and web app (default http://localhost:5173)...
+Run script is now attached to both dev servers.
+Press Ctrl+C to stop them.
+
+> swe-midterm@0.1.0 dev:api
+> npm --workspace @swe-midterm/api run dev
+
+
+> swe-midterm@0.1.0 dev:web
+> [ -d apps/web ] && npm --workspace @swe-midterm/web run dev || echo "apps/web is not present on this branch"
+
+
+> @swe-midterm/web@0.1.0 dev
+> vite
+
+
+> @swe-midterm/api@0.1.0 predev
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/api@0.1.0 dev
+> node --watch --experimental-strip-types src/server.ts
+
+API listening on http://localhost:4000
+Port 5173 is in use, trying another one...
+
+  VITE v5.4.21  ready in 598 ms
+
+  ➜  Local:   http://localhost:5174/
+  ➜  Network: use --host to expose
