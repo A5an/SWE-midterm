@@ -1,0 +1,3 @@
+PR URL: pending
+Suggested branch: feat/LIN-TEA-24-auth-compliance
+Suggested title: fix: align FastAPI and Node auth lifecycle with Assignment 2 compliance

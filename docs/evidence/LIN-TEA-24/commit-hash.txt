@@ -1,0 +1,8 @@
+Base commit in this workspace before the LIN-TEA-24 changes:
+27b489a11838454f8d5bfd08e58a6f55b3051f59
+
+Branch:
+feat/LIN-TEA-24-auth-compliance
+
+Note:
+The implementation is currently staged as working-tree changes in this workspace and has not been committed yet.

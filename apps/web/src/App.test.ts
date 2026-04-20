@@ -125,7 +125,7 @@ describe("mountApp", () => {
             displayName: "Alaa",
             workspaceIds: ["ws_123"],
             issuedAt: "2026-04-19T12:00:00.000Z",
-            expiresAt: "2026-04-19T20:00:00.000Z"
+            expiresAt: "2026-04-19T12:15:00.000Z"
           }),
           { status: 200 }
         );

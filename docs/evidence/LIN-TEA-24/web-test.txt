@@ -1,0 +1,21 @@
+
+> @swe-midterm/web@0.1.0 pretest
+> npm --workspace @swe-midterm/contracts run build
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/web@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.4 /Users/alaa.alam/Desktop/Main/MBZUAI/2nd semster - 1st year 2026/AI1220B Software, Web & Mobile Engineering - Lab-002/Midterm/SWE-midterm/apps/web
+
+
+ Test Files  5 passed (5)
+      Tests  18 passed (18)
+   Start at  10:26:47
+   Duration  721ms (transform 143ms, setup 0ms, import 212ms, tests 112ms, environment 2.27s)
+

@@ -1,0 +1,7 @@
+DEVIATIONS.md
+README.md
+apps/api/src/contract-test.ts
+apps/api/src/server.ts
+apps/web/src/App.test.ts
+backend/app/routers/documents.py
+backend/tests/test_documents.py

@@ -25,6 +25,8 @@ interface MessageBucket {
 interface AuthSession {
   accessToken: string;
   displayName: string;
+  expiresAt: string;
+  issuedAt: string;
   userId: string;
   workspaceIds: string[];
 }
@@ -246,6 +248,27 @@ const authHeaders = (accessToken?: string): Record<string, string> => {
   return headers;
 };
 
+const decodeJwtTimeWindow = (token: string): { exp: number; iat: number } => {
+  const [, encodedPayload] = token.split(".");
+  assert.ok(encodedPayload, "JWT payload segment must exist.");
+
+  const padded = `${encodedPayload}${"=".repeat((4 - (encodedPayload.length % 4 || 4)) % 4)}`
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const payload = JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as {
+    exp?: unknown;
+    iat?: unknown;
+  };
+
+  assert.equal(typeof payload.iat, "number", "Demo login token must expose numeric iat.");
+  assert.equal(typeof payload.exp, "number", "Demo login token must expose numeric exp.");
+
+  return {
+    iat: payload.iat as number,
+    exp: payload.exp as number
+  };
+};
+
 const loginDemoUser = async (baseUrl: string, userId: string, password: string): Promise<AuthSession> => {
   const response = await fetch(`${baseUrl}/v1/auth/demo-login`, {
     method: "POST",
@@ -256,6 +279,23 @@ const loginDemoUser = async (baseUrl: string, userId: string, password: string):
   assert.equal(response.status, 200, "Demo login must return 200 for valid credentials.");
   const body = (await response.json()) as unknown;
   assert.equal(isDemoLoginResponse(body), true, "Demo login must match the documented auth contract.");
+
+  const tokenWindow = decodeJwtTimeWindow((body as AuthSession).accessToken);
+  assert.equal(
+    (body as AuthSession).issuedAt,
+    new Date(tokenWindow.iat * 1000).toISOString(),
+    "Demo login must report the access token issue time from the JWT itself."
+  );
+  assert.equal(
+    (body as AuthSession).expiresAt,
+    new Date(tokenWindow.exp * 1000).toISOString(),
+    "Demo login must report the access token expiry from the JWT itself."
+  );
+  assert.equal(
+    tokenWindow.exp - tokenWindow.iat,
+    Number(process.env.JWT_ACCESS_TTL_SECONDS?.trim() || 900),
+    "Demo login access tokens must stay aligned with the short-lived configured JWT TTL."
+  );
 
   return body as AuthSession;
 };
