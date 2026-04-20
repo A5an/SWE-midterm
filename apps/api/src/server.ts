@@ -7,6 +7,7 @@ import {
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { URL, fileURLToPath } from "node:url";
+import { demoAiSuggestionProvider } from "./ai/provider.ts";
 import {
   parseAiSuggestionDecisionRequest,
   parseCollaborationClientMessage,
@@ -179,7 +180,6 @@ const ROLE_PRIORITY: Record<SharingRole, number> = {
   viewer: 2
 };
 const WS_MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-const AI_MODEL_NAME = "demo-local-ai-v1";
 const DEMO_USERS = new Map<string, DemoUser>([
   [
     "usr_assanali",
@@ -1064,57 +1064,17 @@ const touchAiJob = (job: AiJobRuntime, status?: AiJobStatus): void => {
   job.updatedAt = new Date().toISOString();
 };
 
-const cleanWhitespace = (text: string): string =>
-  text
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;!?])/g, "$1")
-    .trim();
-
-const buildRewriteSuggestion = (text: string, instructions: string | null): string => {
-  const withoutFiller = cleanWhitespace(
-    text.replace(/\b(really|very|just|actually|basically|perhaps)\b/giu, "")
-  );
-  if (withoutFiller.length === 0) {
-    return "Rewrite unavailable because the selected text is empty.";
-  }
-
-  const rewritten = withoutFiller
-    .split(/(?<=[.!?])\s+/u)
-    .filter((sentence) => sentence.trim().length > 0)
-    .map((sentence) => sentence.trim())
-    .map((sentence) => sentence[0].toUpperCase() + sentence.slice(1))
-    .join(" ");
-
-  return instructions && instructions.trim().length > 0
-    ? `${rewritten}\n\nAdditional focus: ${cleanWhitespace(instructions)}.`
-    : rewritten;
-};
-
-const buildSummarySuggestion = (text: string): string => {
-  const cleaned = cleanWhitespace(text);
-  if (cleaned.length === 0) {
-    return "Summary unavailable because the selected text is empty.";
-  }
-
-  const words = cleaned.split(/\s+/u);
-  const summary = words.slice(0, Math.min(words.length, 18)).join(" ");
-  const suffix = words.length > 18 ? "..." : ".";
-  return `Summary: ${summary}${suffix}`;
-};
-
-const buildAiSuggestion = (
-  feature: Extract<AiFeatureType, "rewrite" | "summarize">,
-  selectionText: string,
-  instructions: string | null
-): string => (feature === "rewrite" ? buildRewriteSuggestion(selectionText, instructions) : buildSummarySuggestion(selectionText));
-
 const splitAiSuggestion = (text: string): string[] => {
   const tokens = text.match(/\S+\s*/gu);
   return tokens && tokens.length > 0 ? tokens : [text];
 };
 
 const startAiJob = (job: AiJobRuntime): void => {
-  const suggestion = buildAiSuggestion(job.feature, job.selection.text, job.instructions);
+  const suggestion = demoAiSuggestionProvider.generateSuggestion(
+    job.feature,
+    job.selection.text,
+    job.instructions
+  );
   const chunks = splitAiSuggestion(suggestion);
   let chunkIndex = 0;
 
@@ -2070,7 +2030,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
             feature: parsed.value.feature,
             instructions: parsed.value.instructions,
             jobId,
-            model: AI_MODEL_NAME,
+            model: demoAiSuggestionProvider.model,
             outputText: "",
             appliedText: null,
             requestedBy: {

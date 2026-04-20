@@ -1,0 +1,10 @@
+apps/api/src/ai/prompts.ts
+apps/api/src/ai/provider.ts
+apps/api/src/server.ts
+docs/evidence/LIN-TEA-22/README.md
+docs/evidence/LIN-TEA-22/backend-test-log.txt
+docs/evidence/LIN-TEA-22/typecheck.txt
+docs/evidence/LIN-TEA-22/ai-stream-transcript.txt
+docs/evidence/LIN-TEA-22/commit-hash.txt
+docs/evidence/LIN-TEA-22/pr-link.txt
+docs/evidence/LIN-TEA-22/notes.txt
