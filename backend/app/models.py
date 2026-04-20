@@ -40,6 +40,20 @@ class CreateDocumentRequest(BaseModel):
         return value.strip()
 
 
+class UpdateDocumentRequest(BaseModel):
+    title: Optional[str] = None
+    content: DocumentContent
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("title must be omitted or a non-empty string.")
+        return value.strip()
+
+
 class DocumentMetadataResponse(BaseModel):
     model_config = ConfigDict(json_schema_extra={"example": {
         "documentId": "doc_456",
@@ -80,6 +94,20 @@ class DocumentDetailResponse(DocumentMetadataResponse):
 
     content: DocumentContent
     updatedAt: datetime
+
+
+class DocumentListItemResponse(BaseModel):
+    documentId: str
+    workspaceId: str
+    title: str
+    effectiveRole: Literal["owner"] = "owner"
+    createdAt: datetime
+    updatedAt: datetime
+    preview: str
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentListItemResponse]
 
 
 class ApiError(BaseModel):

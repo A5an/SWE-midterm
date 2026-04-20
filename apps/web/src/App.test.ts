@@ -288,6 +288,266 @@ describe("mountApp", () => {
     expect(root.querySelector("#autosaveState")?.textContent).toContain("Saved");
   });
 
+  it("silently refreshes the FastAPI-backed session when the main app gets a 401", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const authorization =
+        init?.headers && "Authorization" in (init.headers as Record<string, string>)
+          ? (init.headers as Record<string, string>).Authorization
+          : undefined;
+
+      if (url.endsWith("/v1/auth/login")) {
+        return new Response(
+          JSON.stringify({
+            user: {
+              userId: "usr_alaa",
+              email: "alaa@example.com",
+              displayName: "Alaa",
+              workspaceRole: "owner",
+              workspaceIds: ["ws_123"],
+              createdAt: "2026-04-19T12:00:00.000Z"
+            },
+            tokens: {
+              tokenType: "bearer",
+              accessToken: "access-1",
+              accessTokenExpiresAt: "2026-04-19T12:15:00.000Z",
+              refreshToken: "refresh-1",
+              refreshTokenExpiresAt: "2026-04-20T12:15:00.000Z"
+            }
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/me")) {
+        expect(authorization).toBe("Bearer access-1");
+        return new Response(
+          JSON.stringify({
+            userId: "usr_alaa",
+            email: "alaa@example.com",
+            displayName: "Alaa",
+            workspaceRole: "owner",
+            workspaceIds: ["ws_123"],
+            createdAt: "2026-04-19T12:00:00.000Z"
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/auth/refresh")) {
+        return new Response(
+          JSON.stringify({
+            user: {
+              userId: "usr_alaa",
+              email: "alaa@example.com",
+              displayName: "Alaa",
+              workspaceRole: "owner",
+              workspaceIds: ["ws_123"],
+              createdAt: "2026-04-19T12:00:00.000Z"
+            },
+            tokens: {
+              tokenType: "bearer",
+              accessToken: "access-2",
+              accessTokenExpiresAt: "2026-04-19T12:30:00.000Z",
+              refreshToken: "refresh-2",
+              refreshTokenExpiresAt: "2026-04-20T12:30:00.000Z"
+            }
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/documents") && (!init?.method || init.method === "GET")) {
+        if (authorization === "Bearer access-1") {
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: "AUTH_INVALID_TOKEN",
+                message: "Token has expired.",
+                requestId: "req_expired",
+                retryable: false
+              }
+            }),
+            { status: 401 }
+          );
+        }
+
+        expect(authorization).toBe("Bearer access-2");
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                documentId: "doc_123",
+                workspaceId: "ws_123",
+                title: "Recovered Doc",
+                effectiveRole: "owner",
+                createdAt: "2026-04-19T12:00:00.000Z",
+                updatedAt: "2026-04-19T12:00:00.000Z",
+                preview: "Recovered preview."
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      throw new Error(`Unhandled fetch ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const root = document.createElement("div");
+    document.body.append(root);
+    mountApp(root);
+
+    const emailInput = root.querySelector<HTMLInputElement>("#authLoginEmail");
+    const passwordInput = root.querySelector<HTMLInputElement>("#authLoginPassword");
+    emailInput!.value = "alaa@example.com";
+    passwordInput!.value = "Sup3rSecure!";
+
+    root.querySelector<HTMLFormElement>("#authLoginForm")?.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true })
+    );
+
+    await vi.waitFor(() => {
+      expect(root.querySelector("#documentList")?.textContent).toContain("Recovered Doc");
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/auth/refresh"),
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(root.querySelector("#authLifecycleState")?.textContent).toContain("refreshed");
+  });
+
+  it("removes a deleted document from the dashboard list", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/v1/auth/demo-login")) {
+        return new Response(
+          JSON.stringify({
+            accessToken: "token-123",
+            userId: "usr_alaa",
+            displayName: "Alaa",
+            workspaceIds: ["ws_123"],
+            issuedAt: "2026-04-19T12:00:00.000Z",
+            expiresAt: "2026-04-19T12:15:00.000Z"
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/documents") && (!init?.method || init.method === "GET")) {
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                documentId: "doc_123",
+                workspaceId: "ws_123",
+                title: "Delete Me",
+                effectiveRole: "owner",
+                createdAt: "2026-04-19T12:00:00.000Z",
+                updatedAt: "2026-04-19T12:00:00.000Z",
+                preview: "Soon gone."
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/documents/doc_123") && (!init?.method || init.method === "GET")) {
+        return new Response(
+          JSON.stringify({
+            documentId: "doc_123",
+            workspaceId: "ws_123",
+            title: "Delete Me",
+            ownerRole: "owner",
+            currentVersionId: "ver_001",
+            createdAt: "2026-04-19T12:00:00.000Z",
+            updatedAt: "2026-04-19T12:00:00.000Z",
+            content: {
+              type: "doc",
+              content: [{ type: "paragraph", text: "Soon gone." }]
+            }
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/documents/doc_123") && init?.method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+
+      if (url.endsWith("/v1/documents/doc_123/permissions")) {
+        return new Response(
+          JSON.stringify({
+            documentId: "doc_123",
+            permissions: [
+              {
+                shareId: null,
+                source: "owner",
+                userId: "usr_alaa",
+                email: "alaa@example.com",
+                displayName: "Alaa",
+                permissionLevel: "owner"
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/documents/doc_123/versions")) {
+        return new Response(
+          JSON.stringify({
+            documentId: "doc_123",
+            currentVersionId: "ver_001",
+            versions: []
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith("/v1/documents/doc_123/ai/jobs")) {
+        return new Response(
+          JSON.stringify({
+            documentId: "doc_123",
+            jobs: []
+          }),
+          { status: 200 }
+        );
+      }
+
+      throw new Error(`Unhandled fetch ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const root = document.createElement("div");
+    document.body.append(root);
+    mountApp(root);
+
+    root.querySelector<HTMLButtonElement>("#loginButton")?.click();
+    await vi.waitFor(() => {
+      expect(root.querySelector("#documentList")?.textContent).toContain("Delete Me");
+    });
+
+    root.querySelector<HTMLButtonElement>("[data-document-id='doc_123']")?.click();
+    await vi.waitFor(() => {
+      expect(root.querySelector<HTMLButtonElement>("#deleteDocumentButton")?.disabled).toBe(false);
+    });
+
+    root.querySelector<HTMLButtonElement>("#deleteDocumentButton")?.click();
+
+    await vi.waitFor(() => {
+      expect(root.querySelector("#documentList")?.textContent).not.toContain("Delete Me");
+    });
+
+    expect(root.querySelector("#status")?.textContent).toContain("Deleted doc_123");
+  });
+
   it("renders the imperative app through the React shell", async () => {
     const root = document.createElement("div");
     document.body.append(root);

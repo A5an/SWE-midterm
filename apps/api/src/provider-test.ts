@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { AiPromptContext } from "./ai/prompts.ts";
 import { createAiSuggestionProvider } from "./ai/provider.ts";
 
 const collectSuggestion = async (
   provider: ReturnType<typeof createAiSuggestionProvider>,
   feature: "rewrite" | "summarize",
   selectionText: string,
+  context: AiPromptContext,
   instructions: string | null
 ): Promise<string> => {
   let output = "";
 
-  for await (const chunk of provider.streamSuggestion(feature, selectionText, instructions)) {
+  for await (const chunk of provider.streamSuggestion(feature, selectionText, context, instructions)) {
     output += chunk;
   }
 
@@ -24,6 +26,10 @@ const testDemoProvider = async (): Promise<void> => {
     provider,
     "rewrite",
     "this is really just a test sentence.",
+    {
+      before: "Previous sentence.",
+      after: "Following sentence."
+    },
     "Keep it formal"
   );
 
@@ -63,6 +69,8 @@ const testOpenAiCompatibleProvider = async (): Promise<void> => {
     assert.equal(body.stream, true);
     assert.equal(body.messages[0]?.role, "system");
     assert.equal(body.messages[1]?.role, "user");
+    assert.match(body.messages[1]?.content ?? "", /Before selection: Earlier context/u);
+    assert.match(body.messages[1]?.content ?? "", /After selection: Later context/u);
     assert.match(body.messages[1]?.content ?? "", /Selected text:/u);
 
     response.statusCode = 200;
@@ -90,7 +98,16 @@ const testOpenAiCompatibleProvider = async (): Promise<void> => {
       AI_MODEL: "nvidia.nemotron-mini-4b-instruct"
     } as NodeJS.ProcessEnv);
 
-    const output = await collectSuggestion(provider, "summarize", "Original content", null);
+    const output = await collectSuggestion(
+      provider,
+      "summarize",
+      "Original content",
+      {
+        before: "Earlier context",
+        after: "Later context"
+      },
+      null
+    );
     assert.equal(output, "Streaming provider output");
     console.log("provider: openai-compatible LM Studio adapter streams completion chunks");
   } finally {

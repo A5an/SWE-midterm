@@ -11,6 +11,7 @@ import {
   createAiSuggestionProvider,
   type AiSuggestionProvider
 } from "./ai/provider.ts";
+import { buildAiPromptDefinition } from "./ai/prompts.ts";
 import {
   parseAiSuggestionDecisionRequest,
   parseCollaborationClientMessage,
@@ -158,6 +159,8 @@ interface AiJobRuntime {
   abortController: AbortController | null;
   canceledAt: string | null;
   completedAt: string | null;
+  contextAfter: string;
+  contextBefore: string;
   createdAt: string;
   decision: AiHistoryRecord["decision"];
   documentId: string;
@@ -168,6 +171,8 @@ interface AiJobRuntime {
   model: string;
   outputText: string;
   appliedText: string | null;
+  promptSystem: string;
+  promptUser: string;
   requestedBy: AiHistoryRecord["requestedBy"];
   runPromise: Promise<void> | null;
   selection: AiSelectionRange;
@@ -1052,6 +1057,9 @@ const canManageDocumentShares = (user: AccessTokenPayload, document: StoredDocum
 const canRestoreDocumentVersion = (user: AccessTokenPayload, document: StoredDocument): boolean =>
   resolveDocumentRole(user, document) === "owner";
 
+const canDeleteDocument = (user: AccessTokenPayload, document: StoredDocument): boolean =>
+  resolveDocumentRole(user, document) === "owner";
+
 const buildCurrentAccessContext = (
   userId: string,
   fallbackName: string
@@ -1404,6 +1412,10 @@ const toAiHistoryRecord = (job: AiJobRuntime): AiHistoryRecord => ({
   outputText: job.outputText,
   appliedText: job.appliedText,
   instructions: job.instructions,
+  promptSystem: job.promptSystem,
+  promptUser: job.promptUser,
+  contextBefore: job.contextBefore,
+  contextAfter: job.contextAfter,
   model: job.model,
   createdAt: job.createdAt,
   updatedAt: job.updatedAt,
@@ -1465,6 +1477,10 @@ const startAiJob = (job: AiJobRuntime, aiSuggestionProvider: AiSuggestionProvide
         for await (const chunk of aiSuggestionProvider.streamSuggestion(
           job.feature,
           job.selection.text,
+          {
+            before: job.contextBefore,
+            after: job.contextAfter
+          },
           job.instructions,
           {
             signal: abortController.signal
@@ -2428,10 +2444,18 @@ export const createApiServer = (
           const jobId = `ai_${randomUUID().slice(0, 8)}`;
           const now = Math.floor(Date.now() / 1000);
           const createdAt = new Date(now * 1000).toISOString();
+          const promptDefinition = buildAiPromptDefinition(
+            parsed.value.feature,
+            parsed.value.selection.text,
+            parsed.value.instructions,
+            parsed.value.context
+          );
           const job: AiJobRuntime = {
             abortController: null,
             canceledAt: null,
             completedAt: null,
+            contextAfter: parsed.value.context.after,
+            contextBefore: parsed.value.context.before,
             createdAt,
             decision: "pending",
             documentId,
@@ -2442,6 +2466,8 @@ export const createApiServer = (
             model: aiSuggestionProvider.model,
             outputText: "",
             appliedText: null,
+            promptSystem: promptDefinition.system,
+            promptUser: promptDefinition.user,
             requestedBy: {
               userId: authenticatedUser.value.sub,
               displayName: authenticatedUser.value.name
@@ -2772,7 +2798,7 @@ export const createApiServer = (
     }
 
     const documentMatch = pathname.match(/^\/v1\/documents\/([^/]+)$/u);
-    if ((request.method === "GET" || request.method === "PATCH") && documentMatch) {
+    if ((request.method === "GET" || request.method === "PATCH" || request.method === "DELETE") && documentMatch) {
       const [, documentId] = documentMatch;
       const found = store.get(documentId);
 
@@ -2821,6 +2847,27 @@ export const createApiServer = (
           updatedAt: found.updatedAt
         };
         json(response, 200, detail);
+        return;
+      }
+
+      if (request.method === "DELETE") {
+        if (!canDeleteDocument(authenticatedUser.value, found)) {
+          json(
+            response,
+            403,
+            buildErrorEnvelope(
+              requestId,
+              "AUTHZ_FORBIDDEN",
+              `User '${authenticatedUser.value.sub}' cannot delete document '${documentId}'.`,
+              false
+            )
+          );
+          return;
+        }
+
+        store.delete(documentId);
+        response.statusCode = 204;
+        response.end();
         return;
       }
 

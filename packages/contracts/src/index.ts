@@ -178,6 +178,10 @@ export interface AiHistoryRecord {
   outputText: string;
   appliedText: string | null;
   instructions: string | null;
+  promptSystem: string;
+  promptUser: string;
+  contextBefore: string;
+  contextAfter: string;
   model: string;
   createdAt: string;
   updatedAt: string;
@@ -909,6 +913,10 @@ export const isAiHistoryRecord = (value: unknown): value is AiHistoryRecord => {
     typeof value.outputText === "string" &&
     (value.appliedText === null || typeof value.appliedText === "string") &&
     (value.instructions === null || typeof value.instructions === "string") &&
+    typeof value.promptSystem === "string" &&
+    typeof value.promptUser === "string" &&
+    typeof value.contextBefore === "string" &&
+    typeof value.contextAfter === "string" &&
     isNonEmptyString(value.model) &&
     isIsoDateString(value.createdAt) &&
     isIsoDateString(value.updatedAt) &&

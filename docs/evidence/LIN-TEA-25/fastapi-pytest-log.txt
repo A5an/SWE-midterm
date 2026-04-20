@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-8.4.2, pluggy-1.6.0
+rootdir: /Users/alaa.alam/Desktop
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collected 7 items
+
+backend/tests/test_documents.py .......                                  [100%]
+
+============================== 7 passed in 8.70s ===============================

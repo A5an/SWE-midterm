@@ -95,6 +95,11 @@ interface UndoState {
   restoredText: string;
 }
 
+interface AuthenticatedRequest {
+  init?: RequestInit;
+  input: RequestInfo | URL;
+}
+
 const readJson = async (response: Response): Promise<unknown> => {
   const text = await response.text();
   if (!text) {
@@ -385,7 +390,10 @@ export const mountApp = (root: HTMLElement): (() => void) => {
               <h2>Dashboard Documents</h2>
               <p class="hint panel-subtitle">Accessible documents sorted by most recent update.</p>
             </div>
-            <button id="refreshDocumentsButton" class="button button-secondary" type="button">Refresh List</button>
+            <div class="button-row button-row-left">
+              <button id="refreshDocumentsButton" class="button button-secondary" type="button">Refresh List</button>
+              <button id="deleteDocumentButton" class="button button-ghost" type="button" disabled>Delete Loaded Document</button>
+            </div>
           </div>
           <ul id="documentList" class="document-list">
             <li class="document-list-empty">Sign in to load your dashboard documents.</li>
@@ -581,6 +589,7 @@ export const mountApp = (root: HTMLElement): (() => void) => {
   const documentIdInput = root.querySelector<HTMLInputElement>("#documentId");
   const loadButton = root.querySelector<HTMLButtonElement>("#loadButton");
   const refreshDocumentsButton = root.querySelector<HTMLButtonElement>("#refreshDocumentsButton");
+  const deleteDocumentButton = root.querySelector<HTMLButtonElement>("#deleteDocumentButton");
   const documentList = root.querySelector<HTMLUListElement>("#documentList");
   const userIdInput = root.querySelector<HTMLInputElement>("#userId");
   const passwordInput = root.querySelector<HTMLInputElement>("#password");
@@ -661,6 +670,7 @@ export const mountApp = (root: HTMLElement): (() => void) => {
     !documentIdInput ||
     !loadButton ||
     !refreshDocumentsButton ||
+    !deleteDocumentButton ||
     !documentList ||
     !userIdInput ||
     !passwordInput ||
@@ -952,6 +962,57 @@ export const mountApp = (root: HTMLElement): (() => void) => {
     return `${prefix}: unexpected response format.`;
   };
 
+  const executeAuthenticatedRequest = async (
+    requestFactory: AuthenticatedRequest | (() => AuthenticatedRequest)
+  ): Promise<{ payload: unknown; response: Response }> => {
+    const request = typeof requestFactory === "function" ? requestFactory() : requestFactory;
+    const response = await fetch(request.input, request.init);
+    return {
+      response,
+      payload: await readJson(response)
+    };
+  };
+
+  const shouldRetryWithRefreshedSession = (response: Response, payload: unknown): boolean => {
+    if (response.status === 401) {
+      return true;
+    }
+
+    return (
+      isApiErrorEnvelope(payload) &&
+      (payload.error.code === "AUTHN_TOKEN_EXPIRED" ||
+        payload.error.code === "AUTHN_INVALID_TOKEN" ||
+        payload.error.code === "AUTH_INVALID_TOKEN")
+    );
+  };
+
+  const fetchWithAuthRetry = async (
+    requestFactory: AuthenticatedRequest | (() => AuthenticatedRequest)
+  ): Promise<{ payload: unknown; response: Response }> => {
+    const initialResult = await executeAuthenticatedRequest(requestFactory);
+    const refreshableSession =
+      fastapiSession && authSession?.accessToken === fastapiSession.tokens.accessToken
+        ? fastapiSession
+        : null;
+
+    if (!refreshableSession || !shouldRetryWithRefreshedSession(initialResult.response, initialResult.payload)) {
+      return initialResult;
+    }
+
+    try {
+      const refreshedSession = await refreshAuthSession(refreshableSession);
+      applyFastapiSession(refreshedSession);
+      setAuthLifecycleMessage("Main app session refreshed after access-token expiry.");
+    } catch (error) {
+      applyFastapiSession(null);
+      navigateAuthRoute("login");
+      setAuthLifecycleMessage(describeFastapiError("Main app session expired", error));
+      return initialResult;
+    }
+
+    return executeAuthenticatedRequest(requestFactory);
+  };
+
   const loadProtectedProfile = async (
     reason = "Protected workspace loaded through /v1/me."
   ): Promise<void> => {
@@ -1106,12 +1167,14 @@ export const mountApp = (root: HTMLElement): (() => void) => {
 
     const canManageShares = currentDocument !== null && authSession !== null && documentRole === "owner";
     const canInspectDocument = currentDocument !== null && authSession !== null;
+    const canDeleteDocument = currentDocument !== null && authSession !== null && documentRole === "owner";
 
     sharePrincipalInput.disabled = !canManageShares;
     shareRoleSelect.disabled = !canManageShares;
     shareSubmitButton.disabled = !canManageShares;
     refreshPermissionsButton.disabled = !canInspectDocument;
     refreshVersionsButton.disabled = !canInspectDocument;
+    deleteDocumentButton.disabled = !canDeleteDocument;
 
     if (versions.length > 0) {
       renderVersions();
@@ -1250,13 +1313,13 @@ export const mountApp = (root: HTMLElement): (() => void) => {
       return;
     }
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/permissions`,
-      {
+    const documentId = currentDocument.documentId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/permissions`,
+      init: {
         headers: currentAuthHeaders()
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (response.ok) {
       if (!isDocumentPermissionsResponse(payload)) {
@@ -1294,13 +1357,13 @@ export const mountApp = (root: HTMLElement): (() => void) => {
       return;
     }
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/versions`,
-      {
+    const documentId = currentDocument.documentId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/versions`,
+      init: {
         headers: currentAuthHeaders()
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (!response.ok) {
       versions = [];
@@ -1343,9 +1406,10 @@ export const mountApp = (root: HTMLElement): (() => void) => {
     }
 
     const permissionLevel = shareRoleSelect.value as SharingRole;
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/shares`,
-      {
+    const documentId = currentDocument.documentId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/shares`,
+      init: {
         method: "POST",
         headers: currentAuthHeaders(true),
         body: JSON.stringify({
@@ -1354,8 +1418,7 @@ export const mountApp = (root: HTMLElement): (() => void) => {
           permissionLevel
         })
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (!response.ok) {
       handleApiFailure("Share update failed", payload);
@@ -1389,16 +1452,16 @@ export const mountApp = (root: HTMLElement): (() => void) => {
       return;
     }
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/shares/${encodeURIComponent(shareId)}`,
-      {
+    const documentId = currentDocument.documentId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/shares/${encodeURIComponent(shareId)}`,
+      init: {
         method: "DELETE",
         headers: currentAuthHeaders()
       }
-    );
+    }));
 
     if (!response.ok) {
-      const payload = await readJson(response);
       handleApiFailure("Share removal failed", payload);
       return;
     }
@@ -1424,15 +1487,15 @@ export const mountApp = (root: HTMLElement): (() => void) => {
       return;
     }
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/versions/${encodeURIComponent(versionId)}:revert`,
-      {
+    const documentId = currentDocument.documentId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/versions/${encodeURIComponent(versionId)}:revert`,
+      init: {
         method: "POST",
         headers: currentAuthHeaders(true),
         body: JSON.stringify({})
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (!response.ok) {
       handleApiFailure("Version restore failed", payload);
@@ -1623,13 +1686,13 @@ export const mountApp = (root: HTMLElement): (() => void) => {
       return;
     }
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/ai/jobs`,
-      {
+    const documentId = currentDocument.documentId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/ai/jobs`,
+      init: {
         headers: currentAuthHeaders()
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (!response.ok) {
       handleApiFailure("AI history load failed", payload);
@@ -1657,9 +1720,11 @@ export const mountApp = (root: HTMLElement): (() => void) => {
       return;
     }
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/ai/jobs/${encodeURIComponent(currentAiJob.jobId)}/decision`,
-      {
+    const documentId = currentDocument.documentId;
+    const jobId = currentAiJob.jobId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/ai/jobs/${encodeURIComponent(jobId)}/decision`,
+      init: {
         method: "POST",
         headers: currentAuthHeaders(true),
         body: JSON.stringify({
@@ -1667,8 +1732,7 @@ export const mountApp = (root: HTMLElement): (() => void) => {
           appliedText
         })
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (!response.ok) {
       handleApiFailure("AI decision save failed", payload);
@@ -1983,11 +2047,12 @@ export const mountApp = (root: HTMLElement): (() => void) => {
 
     const selection = currentSelection();
     const documentText = getEditorPlainText();
+    const documentId = currentDocument.documentId;
     setStatus(`Starting AI ${feature} for ${describeSelection(selection)}...`);
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/ai/jobs`,
-      {
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/ai/jobs`,
+      init: {
         method: "POST",
         headers: currentAuthHeaders(true),
         body: JSON.stringify({
@@ -1997,8 +2062,7 @@ export const mountApp = (root: HTMLElement): (() => void) => {
           instructions: aiInstructions.value.trim() || null
         })
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (!response.ok) {
       handleApiFailure("AI request failed", payload);
@@ -2037,14 +2101,15 @@ export const mountApp = (root: HTMLElement): (() => void) => {
       return;
     }
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}/ai/jobs/${encodeURIComponent(currentAiJob.jobId)}/cancel`,
-      {
+    const documentId = currentDocument.documentId;
+    const jobId = currentAiJob.jobId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/ai/jobs/${encodeURIComponent(jobId)}/cancel`,
+      init: {
         method: "POST",
         headers: currentAuthHeaders()
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (!response.ok) {
       handleApiFailure("AI cancel failed", payload);
@@ -2282,6 +2347,20 @@ export const mountApp = (root: HTMLElement): (() => void) => {
     resetPresence();
   };
 
+  const unloadCurrentDocument = (): void => {
+    currentDocument = null;
+    documentIdInput.value = "";
+    applyEditorHtml(EMPTY_EDITOR_HTML);
+    renderDocument(null);
+    clearAutosaveTimer();
+    setAutosaveState({ kind: "idle" });
+    updateEditorAvailability();
+    resetDocumentAdminState();
+    resetAiState();
+    resetCollaboration();
+    syncSelectionStatus();
+  };
+
   const refreshDocumentList = async (): Promise<void> => {
     if (!authSession) {
       documentItems = [];
@@ -2289,10 +2368,12 @@ export const mountApp = (root: HTMLElement): (() => void) => {
       return;
     }
 
-    const response = await fetch(`${currentApiBase()}/v1/documents`, {
-      headers: currentAuthHeaders()
-    });
-    const payload = await readJson(response);
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents`,
+      init: {
+        headers: currentAuthHeaders()
+      }
+    }));
 
     if (!response.ok) {
       handleApiFailure("Dashboard list failed", payload);
@@ -2320,10 +2401,12 @@ export const mountApp = (root: HTMLElement): (() => void) => {
 
     const previousDocumentId = currentDocument?.documentId ?? null;
     setStatus(`Loading ${documentId}...`);
-    const response = await fetch(`${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}`, {
-      headers: currentAuthHeaders()
-    });
-    const payload = await readJson(response);
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}`,
+      init: {
+        headers: currentAuthHeaders()
+      }
+    }));
 
     if (!response.ok) {
       handleApiFailure("Load failed", payload);
@@ -2378,19 +2461,21 @@ export const mountApp = (root: HTMLElement): (() => void) => {
 
     syncDocumentFromEditor();
     setAutosaveState({ kind: "saving" });
+    const documentId = currentDocument.documentId;
+    const title = currentDocument.title;
+    const content = currentDocument.content;
 
-    const response = await fetch(
-      `${currentApiBase()}/v1/documents/${encodeURIComponent(currentDocument.documentId)}`,
-      {
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}`,
+      init: {
         method: "PATCH",
         headers: currentAuthHeaders(true),
         body: JSON.stringify({
-          title: currentDocument.title,
-          content: currentDocument.content
+          title,
+          content
         })
       }
-    );
-    const payload = await readJson(response);
+    }));
 
     if (!response.ok) {
       handleApiFailure("Autosave failed", payload);
@@ -2570,13 +2655,14 @@ export const mountApp = (root: HTMLElement): (() => void) => {
 
     setStatus("Creating document...");
 
-    const response = await fetch(`${currentApiBase()}/v1/documents`, {
-      method: "POST",
-      headers: currentAuthHeaders(true),
-      body: JSON.stringify(requestBody)
-    });
-
-    const payload = await readJson(response);
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents`,
+      init: {
+        method: "POST",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify(requestBody)
+      }
+    }));
 
     if (!response.ok) {
       handleApiFailure("Create failed", payload);
@@ -2600,6 +2686,42 @@ export const mountApp = (root: HTMLElement): (() => void) => {
 
   refreshDocumentsButton.addEventListener("click", async () => {
     await refreshDocumentList();
+  });
+
+  deleteDocumentButton.addEventListener("click", async () => {
+    if (!currentDocument) {
+      setStatus("Delete blocked: load a document first.");
+      return;
+    }
+
+    if (!authSession) {
+      setStatus("Delete blocked: sign in first.");
+      return;
+    }
+
+    if (documentRole !== "owner") {
+      setStatus("Delete blocked: only the owner can delete this document.");
+      return;
+    }
+
+    const documentId = currentDocument.documentId;
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}`,
+      init: {
+        method: "DELETE",
+        headers: currentAuthHeaders()
+      }
+    }));
+
+    if (!response.ok) {
+      handleApiFailure("Delete failed", payload);
+      return;
+    }
+
+    documentItems = documentItems.filter((document) => document.documentId !== documentId);
+    renderDocumentList();
+    unloadCurrentDocument();
+    setStatus(`Deleted ${documentId}. The dashboard list was updated immediately.`);
   });
 
   documentList.addEventListener("click", async (event) => {
@@ -2691,12 +2813,14 @@ export const mountApp = (root: HTMLElement): (() => void) => {
 
     manualDisconnect = false;
 
-    const response = await fetch(`${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/sessions`, {
-      method: "POST",
-      headers: currentAuthHeaders(true),
-      body: JSON.stringify({})
-    });
-    const payload = await readJson(response);
+    const { response, payload } = await fetchWithAuthRetry(() => ({
+      input: `${currentApiBase()}/v1/documents/${encodeURIComponent(documentId)}/sessions`,
+      init: {
+        method: "POST",
+        headers: currentAuthHeaders(true),
+        body: JSON.stringify({})
+      }
+    }));
 
     if (!response.ok) {
       if (isApiErrorEnvelope(payload) && payload.error.code === "AUTHZ_FORBIDDEN") {
