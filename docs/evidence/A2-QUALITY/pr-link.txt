@@ -1,2 +1,2 @@
-PR not created yet.
-Create this change from a non-main feature branch before opening the PR because the assignment workflow forbids direct pushes to `main`.
+https://github.com/A5an/SWE-midterm/pull/17
+Draft PR title: Harden Assignment 2 runbook and evidence bundle

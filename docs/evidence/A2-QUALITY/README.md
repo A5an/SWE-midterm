@@ -2,8 +2,8 @@
 
 - Issue: `A2-QUALITY`
 - Workspace branch state: `chore/A2-QUALITY-submission-hardening`
-- Implementation anchor commit: see `commit-hash.txt`
-- PR: placeholder recorded in `pr-link.txt`
+- Implementation commit: see `commit-hash.txt`
+- PR: `https://github.com/A5an/SWE-midterm/pull/17`
 
 ## What changed and why
 
@@ -30,4 +30,4 @@ These changes were made because Assignment 2 grading explicitly requires a singl
 - `backend-pytest.txt`: FastAPI pytest output.
 - `build-log.txt`: production web build output.
 - `commit-hash.txt`: implementation commit reference for this quality/docs bundle.
-- `pr-link.txt`: placeholder note for the future feature-branch PR.
+- `pr-link.txt`: GitHub pull request URL for this quality/docs bundle.

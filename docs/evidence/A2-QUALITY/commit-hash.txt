@@ -1,2 +1,2 @@
-55b436300ed16f388595316f224e8acfdcf2b41d
-Note: this is the current HEAD commit in the workspace. The A2-QUALITY changes in this evidence bundle are still uncommitted on top of it.
+3b60dc726fd8c8b15294a62b77e792c4299c3c7f
+docs: harden assignment 2 runbook and evidence
