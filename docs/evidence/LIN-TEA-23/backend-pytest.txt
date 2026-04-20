@@ -2,9 +2,9 @@
 platform darwin -- Python 3.12.7, pytest-8.4.2, pluggy-1.6.0
 rootdir: /Users/assanali.aukenov/Projects/SWE-midterm
 plugins: anyio-4.11.0, langsmith-0.4.39
-collected 12 items
+collected 13 items
 
-backend/tests/test_auth.py ......                                        [ 50%]
+backend/tests/test_auth.py .......                                       [ 53%]
 backend/tests/test_documents.py ......                                   [100%]
 
-============================== 12 passed in 7.11s ==============================
+============================== 13 passed in 7.47s ==============================

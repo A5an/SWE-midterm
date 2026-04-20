@@ -813,6 +813,7 @@ const loginWithFastApiDemoUser = async (
       ok: true;
       value: {
         accessToken: string;
+        accessTokenExpiresAt: string | null;
         displayName: string;
         userId: string;
         workspaceIds: string[];
@@ -855,6 +856,7 @@ const loginWithFastApiDemoUser = async (
           };
           tokens?: {
             accessToken?: string;
+            accessTokenExpiresAt?: string;
           };
         }
       | null;
@@ -878,6 +880,7 @@ const loginWithFastApiDemoUser = async (
         ok: true,
         value: {
           accessToken: payload.tokens.accessToken,
+          accessTokenExpiresAt: payload.tokens.accessTokenExpiresAt ?? null,
           userId: payload.user.userId,
           displayName: payload.user.displayName,
           workspaceIds: payload.user.workspaceIds
@@ -910,6 +913,7 @@ const loginWithFastApiDemoUser = async (
     ok: true,
     value: {
       accessToken,
+      accessTokenExpiresAt: new Date((now + ACCESS_TOKEN_TTL_SECONDS) * 1000).toISOString(),
       userId,
       displayName: demoUser.displayName,
       workspaceIds: demoUser.workspaceIds
@@ -1588,7 +1592,9 @@ export const createApiServer = (
           displayName: fastApiLogin.value.displayName,
           workspaceIds: fastApiLogin.value.workspaceIds,
           issuedAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000).toISOString()
+          expiresAt:
+            fastApiLogin.value.accessTokenExpiresAt ??
+            new Date(Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000).toISOString()
         });
         return;
       } catch (error) {

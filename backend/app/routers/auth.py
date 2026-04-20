@@ -315,15 +315,22 @@ async def resolve_user(
 @router.get(
     "/users",
     response_model=list[UserProfileResponse],
-    responses={401: {"model": ApiErrorEnvelope}},
+    responses={401: {"model": ApiErrorEnvelope}, 403: {"model": ApiErrorEnvelope}},
     summary="List users for a workspace",
     description="Returns known users associated with a given workspace ID.",
 )
 async def list_users_for_workspace(
     workspaceId: str,
     request: Request,
-    _: StoredUser = Depends(get_current_user),
+    current_user: StoredUser = Depends(get_current_user),
 ) -> list[UserProfileResponse]:
+    if workspaceId not in (current_user.workspace_ids or []):
+        raise ApiApplicationError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="AUTHZ_FORBIDDEN",
+            message=f"Workspace '{workspaceId}' is not accessible to the authenticated user.",
+        )
+
     store = _get_auth_store(request)
     users = store.list_users_for_workspace(workspaceId)
     return [

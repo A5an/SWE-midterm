@@ -166,3 +166,24 @@ def test_login_rejects_invalid_credentials() -> None:
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "AUTHN_INVALID_CREDENTIALS"
+
+
+def test_workspace_user_listing_rejects_cross_workspace_enumeration() -> None:
+    client = make_client()
+    registered = register_user(client)
+    access_token = registered["tokens"]["accessToken"]
+
+    allowed = client.get(
+        "/v1/users",
+        params={"workspaceId": "ws_123"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert allowed.status_code == 200
+
+    forbidden = client.get(
+        "/v1/users",
+        params={"workspaceId": "ws_other"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert forbidden.status_code == 403
+    assert forbidden.json()["error"]["code"] == "AUTHZ_FORBIDDEN"

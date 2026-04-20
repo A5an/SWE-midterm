@@ -25,6 +25,7 @@ interface MessageBucket {
 interface AuthSession {
   accessToken: string;
   displayName: string;
+  expiresAt: string;
   userId: string;
   workspaceIds: string[];
 }
@@ -260,6 +261,14 @@ const loginDemoUser = async (baseUrl: string, userId: string, password: string):
   return body as AuthSession;
 };
 
+const decodeJwtPayload = (token: string): { exp?: number } => {
+  const [, payload] = token.split(".");
+  assert.ok(payload, "JWT must include a payload segment.");
+  const normalized = payload.replace(/-/gu, "+").replace(/_/gu, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as { exp?: number };
+};
+
 const loginDemoUsernameAlias = async (baseUrl: string, username: string, password: string): Promise<AuthSession> => {
   const response = await fetch(`${baseUrl}/v1/auth/demo-login`, {
     method: "POST",
@@ -305,6 +314,12 @@ const main = async (): Promise<void> => {
   );
 
   const owner = await loginDemoUser(baseUrl, "usr_assanali", "demo-assanali");
+  const ownerTokenPayload = decodeJwtPayload(owner.accessToken);
+  assert.equal(
+    Math.floor(Date.parse(owner.expiresAt) / 1000),
+    ownerTokenPayload.exp ?? 0,
+    "Demo login expiry must reflect the bridged access token expiry."
+  );
   const ownerViaUsernameAlias = await loginDemoUsernameAlias(baseUrl, "usr_assanali", "demo-assanali");
   assert.equal(ownerViaUsernameAlias.userId, owner.userId, "Username alias login must normalize to the same user.");
   const workspaceEditor = await loginDemoUser(baseUrl, "usr_dachi", "demo-dachi");
