@@ -3,7 +3,7 @@
 - Linear issue: `LIN-TEA-22`
 - Branch used in this workspace: `feat/LIN-TEA-22-ai-provider-prompts`
 - Implementation commit: see `commit-hash.txt`
-- PR: pending branch push and PR creation. Placeholder recorded in `pr-link.txt`.
+- PR: `https://github.com/A5an/SWE-midterm/pull/16`
 
 ## What Changed
 

@@ -1,2 +1,2 @@
-PR pending branch push.
-Suggested title: Extract AI prompt and provider modules from API server
+https://github.com/A5an/SWE-midterm/pull/16
+Draft PR title: Extract AI prompt and provider modules from API server
