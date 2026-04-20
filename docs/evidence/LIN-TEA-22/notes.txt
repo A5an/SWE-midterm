@@ -1,0 +1,4 @@
+- No frontend changes were required or made for this issue.
+- No shared contract changes were required because the request/response shape stayed the same.
+- No `DEVIATIONS.md` update was needed because this task does not change scope, process, or the documented A1-to-A2 architectural deviation; it only modularizes the existing in-process baseline implementation.
+- The assignment PDF is present in the repo, but this environment did not have a working text extraction tool. Acceptance alignment was therefore derived from the repository source-of-truth Markdown docs plus the explicit `LIN-TEA-22` issue description.

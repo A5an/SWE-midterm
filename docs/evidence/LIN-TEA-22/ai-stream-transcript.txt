@@ -1,0 +1,15 @@
+Source: docs/evidence/LIN-TEA-22/backend-test-log.txt
+
+Observed unchanged AI flow in the passing contract suite:
+
+1. `POST /v1/documents/{documentId}/ai/jobs` for `rewrite` returned `201 Created`.
+2. The rewrite stream emitted status/progressive output and completed successfully.
+3. The completed rewrite job remained queryable in per-document AI history.
+4. A second `POST /v1/documents/{documentId}/ai/jobs` for `summarize` started streaming.
+5. `POST /v1/documents/{documentId}/ai/jobs/{jobId}/cancel` returned `200 OK`.
+6. The summarize stream emitted a canceled terminal event and remained queryable in AI history.
+
+Relevant log lines:
+- `ai-stream: rewrite streamed progressive output and completed`
+- `ai-stream: summarize stream canceled successfully before completion`
+- `ai-history: canceled summarize job is retained in per-document history`
