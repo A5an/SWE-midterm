@@ -7,7 +7,10 @@ import {
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { URL, fileURLToPath } from "node:url";
-import { demoAiSuggestionProvider } from "./ai/provider.ts";
+import {
+  createAiSuggestionProvider,
+  type AiSuggestionProvider
+} from "./ai/provider.ts";
 import {
   parseAiSuggestionDecisionRequest,
   parseCollaborationClientMessage,
@@ -108,12 +111,25 @@ interface StoredDocument {
 }
 
 interface AccessTokenPayload {
+  email?: string;
   exp: number;
   iat: number;
   name: string;
   sub: string;
   tokenUse: "api_access";
   workspaceIds: string[];
+}
+
+interface FastApiAccessTokenPayload {
+  email?: string;
+  exp: number;
+  iat: number;
+  iss: string;
+  name?: string;
+  sid: string;
+  sub: string;
+  typ: "access";
+  workspaceIds?: string[];
 }
 
 interface SessionTokenPayload {
@@ -139,6 +155,7 @@ interface AiStreamTokenPayload {
 type SignedTokenPayload = AccessTokenPayload | SessionTokenPayload | AiStreamTokenPayload;
 
 interface AiJobRuntime {
+  abortController: AbortController | null;
   canceledAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -152,6 +169,7 @@ interface AiJobRuntime {
   outputText: string;
   appliedText: string | null;
   requestedBy: AiHistoryRecord["requestedBy"];
+  runPromise: Promise<void> | null;
   selection: AiSelectionRange;
   sourceText: string;
   status: AiJobStatus;
@@ -168,11 +186,20 @@ interface DemoUser {
   workspaceIds: string[];
 }
 
-const DEFAULT_PORT = Number(process.env.PORT ?? 4000);
+interface KnownUser {
+  displayName: string;
+  email: string;
+  userId: string;
+  workspaceIds: string[];
+}
+
+const DEFAULT_PORT = Number(process.env.PORT?.trim() || 4000);
 const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 const SESSION_TOKEN_TTL_SECONDS = 20 * 60;
 const AI_STREAM_TOKEN_TTL_SECONDS = 20 * 60;
-const SESSION_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET?.trim() || "dev-collab-secret";
+const SESSION_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET?.trim() || "dev-access-secret-change-me";
+const FASTAPI_AUTH_BASE_URL = process.env.FASTAPI_AUTH_BASE_URL?.trim() || "http://127.0.0.1:4021";
+const FASTAPI_JWT_ISSUER = process.env.JWT_ISSUER?.trim() || "swe-midterm-fastapi";
 const MAX_MUTATION_HISTORY = 200;
 const ROLE_PRIORITY: Record<SharingRole, number> = {
   owner: 0,
@@ -227,6 +254,17 @@ const DEMO_USERS = new Map<string, DemoUser>([
     }
   ]
 ]);
+const KNOWN_USERS = new Map<string, KnownUser>(
+  [...DEMO_USERS.entries()].map(([userId, user]) => [
+    userId,
+    {
+      displayName: user.displayName,
+      email: user.email,
+      userId,
+      workspaceIds: [...user.workspaceIds]
+    }
+  ])
+);
 
 const json = (response: ServerResponse, statusCode: number, body: unknown): void => {
   response.statusCode = statusCode;
@@ -408,15 +446,82 @@ const verifyAccessToken = (
 ): { ok: true; value: AccessTokenPayload } | { ok: false; reason: string } => {
   const verified = verifyJwt(token);
 
-  if (!verified.ok) {
+  if (verified.ok) {
+    if (verified.value.tokenUse !== "api_access") {
+      return { ok: false, reason: "Token is not an API access token." };
+    }
+
+    return { ok: true, value: verified.value };
+  }
+
+  const segments = token.split(".");
+  if (segments.length !== 3) {
     return verified;
   }
 
-  if (verified.value.tokenUse !== "api_access") {
-    return { ok: false, reason: "Token is not an API access token." };
+  const [encodedHeader, encodedPayload, encodedSignature] = segments;
+  let parsedHeader: unknown;
+  let parsedPayload: unknown;
+
+  try {
+    parsedHeader = JSON.parse(base64UrlDecode(encodedHeader).toString("utf8")) as unknown;
+    parsedPayload = JSON.parse(base64UrlDecode(encodedPayload).toString("utf8")) as unknown;
+  } catch {
+    return verified;
   }
 
-  return { ok: true, value: verified.value };
+  const expectedSignature = createHmac("sha256", SESSION_TOKEN_SECRET)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest();
+  const providedSignature = base64UrlDecode(encodedSignature);
+
+  if (
+    expectedSignature.length !== providedSignature.length ||
+    !timingSafeEqual(expectedSignature, providedSignature)
+  ) {
+    return { ok: false, reason: "Token signature is invalid." };
+  }
+
+  if (
+    typeof parsedHeader !== "object" ||
+    parsedHeader === null ||
+    (parsedHeader as { alg?: string }).alg !== "HS256" ||
+    (parsedHeader as { typ?: string }).typ !== "JWT"
+  ) {
+    return { ok: false, reason: "Token header is invalid." };
+  }
+
+  if (
+    typeof parsedPayload !== "object" ||
+    parsedPayload === null ||
+    typeof (parsedPayload as FastApiAccessTokenPayload).sub !== "string" ||
+    typeof (parsedPayload as FastApiAccessTokenPayload).sid !== "string" ||
+    typeof (parsedPayload as FastApiAccessTokenPayload).iat !== "number" ||
+    typeof (parsedPayload as FastApiAccessTokenPayload).exp !== "number" ||
+    (parsedPayload as FastApiAccessTokenPayload).typ !== "access" ||
+    (parsedPayload as FastApiAccessTokenPayload).iss !== FASTAPI_JWT_ISSUER ||
+    !Array.isArray((parsedPayload as FastApiAccessTokenPayload).workspaceIds)
+  ) {
+    return { ok: false, reason: "FastAPI access token payload is invalid." };
+  }
+
+  const payload = parsedPayload as FastApiAccessTokenPayload;
+  if (payload.exp <= Math.floor(Date.now() / 1000)) {
+    return { ok: false, reason: "Token has expired." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      tokenUse: "api_access",
+      sub: payload.sub,
+      name: typeof payload.name === "string" && payload.name.trim().length > 0 ? payload.name : payload.sub,
+      email: typeof payload.email === "string" ? payload.email : undefined,
+      workspaceIds: payload.workspaceIds ?? [],
+      iat: payload.iat,
+      exp: payload.exp
+    }
+  };
 };
 
 const verifySessionToken = (
@@ -586,18 +691,256 @@ const buildPatchChangeSummary = (
   return "Updated content";
 };
 
-const lookupDemoUser = (userId: string): DemoUser | null => DEMO_USERS.get(userId) ?? null;
+const lookupKnownUser = (userId: string): KnownUser | null => KNOWN_USERS.get(userId) ?? null;
 
-const resolvePrincipalUser = (principalId: string): [string, DemoUser] | null => {
+const upsertKnownUser = (user: KnownUser): KnownUser => {
+  KNOWN_USERS.set(user.userId, {
+    ...user,
+    workspaceIds: [...user.workspaceIds]
+  });
+  return KNOWN_USERS.get(user.userId)!;
+};
+
+const upsertKnownUserFromAccessToken = (token: AccessTokenPayload): void => {
+  upsertKnownUser({
+    userId: token.sub,
+    displayName: token.name,
+    email: token.email || `${token.sub}@unknown.local`,
+    workspaceIds: [...token.workspaceIds]
+  });
+};
+
+const resolvePrincipalUserLocally = (principalId: string): [string, KnownUser] | null => {
   const normalizedPrincipal = principalId.trim().toLowerCase();
 
-  for (const [userId, demoUser] of DEMO_USERS.entries()) {
-    if (userId.toLowerCase() === normalizedPrincipal || demoUser.email.toLowerCase() === normalizedPrincipal) {
-      return [userId, demoUser];
+  for (const [userId, user] of KNOWN_USERS.entries()) {
+    if (userId.toLowerCase() === normalizedPrincipal || user.email.toLowerCase() === normalizedPrincipal) {
+      return [userId, user];
     }
   }
 
   return null;
+};
+
+const resolveFastApiUrl = (path: string): string =>
+  `${FASTAPI_AUTH_BASE_URL.replace(/\/+$/u, "")}${path.startsWith("/") ? path : `/${path}`}`;
+
+const fetchFastApiUserByPrincipal = async (
+  principalId: string,
+  accessToken: string
+): Promise<KnownUser | null> => {
+  const response = await fetch(
+    `${resolveFastApiUrl("/v1/users/resolve")}?principal=${encodeURIComponent(principalId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    }
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`FastAPI user resolve failed with ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as {
+    displayName: string;
+    email: string;
+    userId: string;
+    workspaceIds?: string[];
+  };
+
+  if (
+    typeof payload.userId !== "string" ||
+    typeof payload.displayName !== "string" ||
+    typeof payload.email !== "string"
+  ) {
+    throw new Error("FastAPI user resolve returned an unexpected payload.");
+  }
+
+  return upsertKnownUser({
+    userId: payload.userId,
+    displayName: payload.displayName,
+    email: payload.email,
+    workspaceIds: Array.isArray(payload.workspaceIds) ? payload.workspaceIds : []
+  });
+};
+
+const syncFastApiWorkspaceUsers = async (workspaceId: string, accessToken: string): Promise<void> => {
+  const response = await fetch(
+    `${resolveFastApiUrl("/v1/users")}?workspaceId=${encodeURIComponent(workspaceId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`FastAPI workspace user sync failed with ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as Array<{
+    displayName: string;
+    email: string;
+    userId: string;
+    workspaceIds?: string[];
+  }>;
+
+  for (const user of payload) {
+    if (
+      typeof user.userId === "string" &&
+      typeof user.displayName === "string" &&
+      typeof user.email === "string"
+    ) {
+      upsertKnownUser({
+        userId: user.userId,
+        displayName: user.displayName,
+        email: user.email,
+        workspaceIds: Array.isArray(user.workspaceIds) ? user.workspaceIds : []
+      });
+    }
+  }
+};
+
+const loginWithFastApiDemoUser = async (
+  userId: string
+): Promise<
+  | {
+      ok: true;
+      value: {
+        accessToken: string;
+        displayName: string;
+        userId: string;
+        workspaceIds: string[];
+      };
+    }
+  | {
+      ok: false;
+      reason: string;
+      statusCode: number;
+    }
+> => {
+  const demoUser = DEMO_USERS.get(userId);
+  if (!demoUser) {
+    return {
+      ok: false,
+      reason: "Demo credentials are invalid.",
+      statusCode: 401
+    };
+  }
+
+  try {
+    const response = await fetch(resolveFastApiUrl("/v1/auth/login"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        email: demoUser.email,
+        password: demoUser.password
+      })
+    });
+
+    const payload = (await readJsonBodyFromResponse(response)) as
+      | {
+          user?: {
+            displayName?: string;
+            userId?: string;
+            workspaceIds?: string[];
+            email?: string;
+          };
+          tokens?: {
+            accessToken?: string;
+          };
+        }
+      | null;
+
+    if (
+      response.ok &&
+      payload &&
+      typeof payload.tokens?.accessToken === "string" &&
+      typeof payload.user?.userId === "string" &&
+      typeof payload.user?.displayName === "string" &&
+      Array.isArray(payload.user?.workspaceIds)
+    ) {
+      upsertKnownUser({
+        userId: payload.user.userId,
+        displayName: payload.user.displayName,
+        email: typeof payload.user.email === "string" ? payload.user.email : demoUser.email,
+        workspaceIds: payload.user.workspaceIds
+      });
+
+      return {
+        ok: true,
+        value: {
+          accessToken: payload.tokens.accessToken,
+          userId: payload.user.userId,
+          displayName: payload.user.displayName,
+          workspaceIds: payload.user.workspaceIds
+        }
+      };
+    }
+  } catch {
+    // Fall through to the local compatibility path.
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const accessToken = signJwt({
+    tokenUse: "api_access",
+    sub: userId,
+    name: demoUser.displayName,
+    email: demoUser.email,
+    workspaceIds: demoUser.workspaceIds,
+    iat: now,
+    exp: now + ACCESS_TOKEN_TTL_SECONDS
+  });
+
+  upsertKnownUser({
+    userId,
+    displayName: demoUser.displayName,
+    email: demoUser.email,
+    workspaceIds: demoUser.workspaceIds
+  });
+
+  return {
+    ok: true,
+    value: {
+      accessToken,
+      userId,
+      displayName: demoUser.displayName,
+      workspaceIds: demoUser.workspaceIds
+    }
+  };
+};
+
+const readJsonBodyFromResponse = async (response: Response): Promise<unknown> => {
+  const text = await response.text();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+};
+
+const resolvePrincipalUser = async (
+  principalId: string,
+  accessToken: string
+): Promise<[string, KnownUser] | null> => {
+  const local = resolvePrincipalUserLocally(principalId);
+  if (local) {
+    return local;
+  }
+
+  const remoteUser = await fetchFastApiUserByPrincipal(principalId, accessToken);
+  return remoteUser ? [remoteUser.userId, remoteUser] : null;
 };
 
 const authenticateRequest = (
@@ -624,14 +967,7 @@ const authenticateRequest = (
     };
   }
 
-  if (!lookupDemoUser(verified.value.sub)) {
-    return {
-      ok: false,
-      code: "AUTH_INVALID_TOKEN",
-      message: "Token subject is not a known demo user.",
-      statusCode: 401
-    };
-  }
+  upsertKnownUserFromAccessToken(verified.value);
 
   return { ok: true, value: verified.value };
 };
@@ -684,8 +1020,8 @@ const buildCurrentAccessContext = (
   userId: string,
   fallbackName: string
 ): AccessTokenPayload | null => {
-  const demoUser = lookupDemoUser(userId);
-  if (!demoUser) {
+  const user = lookupKnownUser(userId);
+  if (!user) {
     return null;
   }
 
@@ -693,8 +1029,9 @@ const buildCurrentAccessContext = (
   return {
     tokenUse: "api_access",
     sub: userId,
-    name: demoUser.displayName || fallbackName,
-    workspaceIds: demoUser.workspaceIds,
+    name: user.displayName || fallbackName,
+    email: user.email,
+    workspaceIds: user.workspaceIds,
     iat: now,
     exp: now + ACCESS_TOKEN_TTL_SECONDS
   };
@@ -702,7 +1039,7 @@ const buildCurrentAccessContext = (
 
 const buildPermissionEntry = (
   userId: string,
-  demoUser: DemoUser,
+  user: KnownUser,
   permissionLevel: SharingRole,
   source: DocumentPermissionEntry["source"],
   shareId: string | null
@@ -710,15 +1047,15 @@ const buildPermissionEntry = (
   shareId,
   source,
   userId,
-  email: demoUser.email,
-  displayName: demoUser.displayName,
+  email: user.email,
+  displayName: user.displayName,
   permissionLevel
 });
 
 const buildPermissionsResponse = (document: StoredDocument): DocumentPermissionsResponse => {
   const permissions: DocumentPermissionEntry[] = [];
 
-  for (const [userId, demoUser] of DEMO_USERS.entries()) {
+  for (const [userId, user] of KNOWN_USERS.entries()) {
     let permissionLevel: SharingRole | null = null;
     let source: DocumentPermissionEntry["source"] | null = null;
     let shareId: string | null = null;
@@ -732,14 +1069,14 @@ const buildPermissionsResponse = (document: StoredDocument): DocumentPermissions
         permissionLevel = share.permissionLevel;
         source = "share";
         shareId = share.shareId;
-      } else if (demoUser.workspaceIds.includes(document.metadata.workspaceId)) {
+      } else if (user.workspaceIds.includes(document.metadata.workspaceId)) {
         permissionLevel = "editor";
         source = "workspace";
       }
     }
 
     if (permissionLevel && source) {
-      permissions.push(buildPermissionEntry(userId, demoUser, permissionLevel, source, shareId));
+      permissions.push(buildPermissionEntry(userId, user, permissionLevel, source, shareId));
     }
   }
 
@@ -1064,20 +1401,12 @@ const touchAiJob = (job: AiJobRuntime, status?: AiJobStatus): void => {
   job.updatedAt = new Date().toISOString();
 };
 
-const splitAiSuggestion = (text: string): string[] => {
-  const tokens = text.match(/\S+\s*/gu);
-  return tokens && tokens.length > 0 ? tokens : [text];
-};
+const isAbortError = (error: unknown): boolean =>
+  error instanceof DOMException
+    ? error.name === "AbortError"
+    : error instanceof Error && error.name === "AbortError";
 
-const startAiJob = (job: AiJobRuntime): void => {
-  const suggestion = demoAiSuggestionProvider.generateSuggestion(
-    job.feature,
-    job.selection.text,
-    job.instructions
-  );
-  const chunks = splitAiSuggestion(suggestion);
-  let chunkIndex = 0;
-
+const startAiJob = (job: AiJobRuntime, aiSuggestionProvider: AiSuggestionProvider): void => {
   job.startTimer = setTimeout(() => {
     job.startTimer = null;
 
@@ -1093,22 +1422,39 @@ const startAiJob = (job: AiJobRuntime): void => {
       message: "Generation started."
     };
     publishAiEvent(job, statusEvent);
+    const abortController = new AbortController();
+    job.abortController = abortController;
+    job.runPromise = (async () => {
+      try {
+        for await (const chunk of aiSuggestionProvider.streamSuggestion(
+          job.feature,
+          job.selection.text,
+          job.instructions,
+          {
+            signal: abortController.signal
+          }
+        )) {
+          if (job.status === "canceled") {
+            return;
+          }
 
-    job.streamTimer = setInterval(() => {
-      if (job.status === "canceled") {
-        if (job.streamTimer) {
-          clearInterval(job.streamTimer);
-          job.streamTimer = null;
+          if (chunk.length === 0) {
+            continue;
+          }
+
+          job.outputText += chunk;
+          touchAiJob(job);
+          const chunkEvent: AiStreamChunkEvent = {
+            type: "ai.chunk",
+            jobId: job.jobId,
+            delta: chunk,
+            outputText: job.outputText
+          };
+          publishAiEvent(job, chunkEvent);
         }
-        return;
-      }
 
-      const nextChunk = chunks[chunkIndex];
-
-      if (nextChunk === undefined) {
-        if (job.streamTimer) {
-          clearInterval(job.streamTimer);
-          job.streamTimer = null;
+        if (job.status === "canceled") {
+          return;
         }
 
         job.completedAt = new Date().toISOString();
@@ -1123,20 +1469,27 @@ const startAiJob = (job: AiJobRuntime): void => {
         };
         publishAiEvent(job, completeEvent);
         closeAiSubscribers(job);
-        return;
-      }
+      } catch (error) {
+        if (job.status === "canceled" || isAbortError(error)) {
+          return;
+        }
 
-      job.outputText += nextChunk;
-      touchAiJob(job);
-      const chunkEvent: AiStreamChunkEvent = {
-        type: "ai.chunk",
-        jobId: job.jobId,
-        delta: nextChunk,
-        outputText: job.outputText
-      };
-      publishAiEvent(job, chunkEvent);
-      chunkIndex += 1;
-    }, 110);
+        job.errorMessage = error instanceof Error ? error.message : "AI generation failed unexpectedly.";
+        touchAiJob(job, "failed");
+        const failedEvent: AiStreamFailedEvent = {
+          type: "ai.failed",
+          jobId: job.jobId,
+          status: "failed",
+          outputText: job.outputText,
+          errorMessage: job.errorMessage
+        };
+        publishAiEvent(job, failedEvent);
+        closeAiSubscribers(job);
+      } finally {
+        job.abortController = null;
+        job.runPromise = null;
+      }
+    })();
   }, 160);
 };
 
@@ -1148,6 +1501,10 @@ const cancelAiJob = (job: AiJobRuntime): void => {
   if (job.streamTimer) {
     clearInterval(job.streamTimer);
     job.streamTimer = null;
+  }
+  if (job.abortController) {
+    job.abortController.abort();
+    job.abortController = null;
   }
 
   if (job.status === "canceled" || job.status === "completed" || job.status === "failed") {
@@ -1167,7 +1524,10 @@ const cancelAiJob = (job: AiJobRuntime): void => {
   closeAiSubscribers(job);
 };
 
-export const createApiServer = (store = new Map<string, StoredDocument>()): Server => {
+export const createApiServer = (
+  store = new Map<string, StoredDocument>(),
+  aiSuggestionProvider: AiSuggestionProvider = createAiSuggestionProvider(process.env)
+): Server => {
   const aiJobs = new Map<string, AiJobRuntime>();
   const server = createServer(async (request, response) => {
     setCorsHeaders(response);
@@ -1212,23 +1572,23 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           return;
         }
 
-        const now = Math.floor(Date.now() / 1000);
-        const accessToken = signJwt({
-          tokenUse: "api_access",
-          sub: parsed.value.userId,
-          name: demoUser.displayName,
-          workspaceIds: demoUser.workspaceIds,
-          iat: now,
-          exp: now + ACCESS_TOKEN_TTL_SECONDS
-        });
+        const fastApiLogin = await loginWithFastApiDemoUser(parsed.value.userId);
+        if (!fastApiLogin.ok) {
+          json(
+            response,
+            fastApiLogin.statusCode,
+            buildErrorEnvelope(requestId, "AUTH_BRIDGE_FAILED", fastApiLogin.reason, true)
+          );
+          return;
+        }
 
         json(response, 200, {
-          accessToken,
-          userId: parsed.value.userId,
-          displayName: demoUser.displayName,
-          workspaceIds: demoUser.workspaceIds,
-          issuedAt: new Date(now * 1000).toISOString(),
-          expiresAt: new Date((now + ACCESS_TOKEN_TTL_SECONDS) * 1000).toISOString()
+          accessToken: fastApiLogin.value.accessToken,
+          userId: fastApiLogin.value.userId,
+          displayName: fastApiLogin.value.displayName,
+          workspaceIds: fastApiLogin.value.workspaceIds,
+          issuedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_SECONDS * 1000).toISOString()
         });
         return;
       } catch (error) {
@@ -1545,6 +1905,15 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         return;
       }
 
+      const accessToken = getBearerToken(request);
+      if (accessToken) {
+        try {
+          await syncFastApiWorkspaceUsers(found.metadata.workspaceId, accessToken);
+        } catch {
+          // Keep the endpoint resilient if the auth bridge is temporarily unavailable.
+        }
+      }
+
       json(response, 200, buildPermissionsResponse(found));
       return;
     }
@@ -1601,7 +1970,10 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           return;
         }
 
-        const principalUser = resolvePrincipalUser(parsed.value.principalId);
+        const accessToken = getBearerToken(request);
+        const principalUser = accessToken
+          ? await resolvePrincipalUser(parsed.value.principalId, accessToken)
+          : resolvePrincipalUserLocally(parsed.value.principalId);
         if (!principalUser) {
           json(
             response,
@@ -1749,7 +2121,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
         share.grantedAt = new Date().toISOString();
         share.grantedByUserId = authenticatedUser.value.sub;
 
-        const sharedUser = lookupDemoUser(share.userId);
+        const sharedUser = lookupKnownUser(share.userId);
         if (!sharedUser) {
           json(
             response,
@@ -1757,7 +2129,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
             buildErrorEnvelope(
               requestId,
               "USER_NOT_FOUND",
-              `User '${share.userId}' is no longer available in the demo directory.`,
+              `User '${share.userId}' is no longer available in the shared user directory.`,
               false
             )
           );
@@ -2021,6 +2393,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
           const now = Math.floor(Date.now() / 1000);
           const createdAt = new Date(now * 1000).toISOString();
           const job: AiJobRuntime = {
+            abortController: null,
             canceledAt: null,
             completedAt: null,
             createdAt,
@@ -2030,13 +2403,14 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
             feature: parsed.value.feature,
             instructions: parsed.value.instructions,
             jobId,
-            model: demoAiSuggestionProvider.model,
+            model: aiSuggestionProvider.model,
             outputText: "",
             appliedText: null,
             requestedBy: {
               userId: authenticatedUser.value.sub,
               displayName: authenticatedUser.value.name
             },
+            runPromise: null,
             selection: parsed.value.selection,
             sourceText: parsed.value.selection.text,
             status: "queued",
@@ -2046,7 +2420,7 @@ export const createApiServer = (store = new Map<string, StoredDocument>()): Serv
             updatedAt: createdAt
           };
           aiJobs.set(jobId, job);
-          startAiJob(job);
+          startAiJob(job, aiSuggestionProvider);
 
           const streamToken = signJwt({
             tokenUse: "ai_stream",

@@ -12,9 +12,61 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from backend.app.errors import ApiApplicationError, build_error_envelope, error_message_from_validation
 from backend.app.routers.auth import router as auth_router
 from backend.app.routers.documents import router as documents_router
-from backend.app.security import AuthSettings
+from backend.app.security import AuthSettings, hash_password
 from backend.app.services.auth_store import AuthStore
 from backend.app.services.document_store import DocumentStore
+
+
+DEMO_AUTH_USERS = [
+    {
+        "user_id": "usr_assanali",
+        "email": "assanali@demo.local",
+        "display_name": "Assanali",
+        "password": "demo-assanali",
+        "workspace_ids": ["ws_123"],
+    },
+    {
+        "user_id": "usr_alaa",
+        "email": "alaa@demo.local",
+        "display_name": "Alaa",
+        "password": "demo-alaa",
+        "workspace_ids": ["ws_123"],
+    },
+    {
+        "user_id": "usr_dachi",
+        "email": "dachi@demo.local",
+        "display_name": "Dachi",
+        "password": "demo-dachi",
+        "workspace_ids": ["ws_123"],
+    },
+    {
+        "user_id": "usr_editor",
+        "email": "editor@demo.local",
+        "display_name": "Editor",
+        "password": "demo-editor",
+        "workspace_ids": ["ws_partner"],
+    },
+    {
+        "user_id": "usr_viewer",
+        "email": "viewer@demo.local",
+        "display_name": "Viewer",
+        "password": "demo-viewer",
+        "workspace_ids": ["ws_other"],
+    },
+]
+
+
+def seed_demo_users(auth_store: AuthStore) -> None:
+    for user in DEMO_AUTH_USERS:
+        if auth_store.get_user_by_id(user["user_id"]) is not None:
+            continue
+        auth_store.register_user(
+            user_id=user["user_id"],
+            email=user["email"],
+            display_name=user["display_name"],
+            password_hash=hash_password(user["password"]),
+            workspace_ids=list(user["workspace_ids"]),
+        )
 
 
 def create_app(
@@ -37,6 +89,7 @@ def create_app(
     app.state.document_store = store or DocumentStore()
     app.state.auth_store = auth_store or AuthStore()
     app.state.auth_settings = auth_settings or AuthSettings.from_env()
+    seed_demo_users(app.state.auth_store)
 
     app.add_middleware(
         CORSMiddleware,

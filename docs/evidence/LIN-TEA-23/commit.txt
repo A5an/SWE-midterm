@@ -1,0 +1,6 @@
+Pending local commit for `feat/LIN-TEA-23-auth-bridge-react-lm-studio`.
+
+Current branch base before commit:
+- `17d7187`
+
+Update this file with the final implementation commit hash before opening the PR.

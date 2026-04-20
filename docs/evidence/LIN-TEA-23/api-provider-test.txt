@@ -1,0 +1,7 @@
+
+> @swe-midterm/api@0.1.0 test:provider
+> node --experimental-strip-types src/provider-test.ts
+
+provider: demo fallback streams local suggestion chunks
+provider: openai-compatible LM Studio adapter streams completion chunks
+AI provider tests passed.

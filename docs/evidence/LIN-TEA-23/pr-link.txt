@@ -1,0 +1,6 @@
+PR not opened yet.
+
+Suggested branch:
+- `feat/LIN-TEA-23-auth-bridge-react-lm-studio`
+
+Update this file with the PR URL after opening the branch against the correct non-`main` target.

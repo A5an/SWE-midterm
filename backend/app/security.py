@@ -7,7 +7,7 @@ import json
 import os
 import secrets
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 
@@ -24,7 +24,7 @@ class TokenExpiredError(TokenValidationError):
     """Raised when a JWT is structurally valid but expired."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AuthSettings:
     access_secret: str
     refresh_secret: str
@@ -35,27 +35,44 @@ class AuthSettings:
     @classmethod
     def from_env(cls) -> "AuthSettings":
         return cls(
-            access_secret=os.getenv("JWT_ACCESS_SECRET", "dev-access-secret-change-me"),
-            refresh_secret=os.getenv("JWT_REFRESH_SECRET", "dev-refresh-secret-change-me"),
-            access_ttl_seconds=int(os.getenv("JWT_ACCESS_TTL_SECONDS", "900")),
-            refresh_ttl_seconds=int(os.getenv("JWT_REFRESH_TTL_SECONDS", "604800")),
-            issuer=os.getenv("JWT_ISSUER", "swe-midterm-fastapi"),
+            access_secret=_env_string("JWT_ACCESS_SECRET", "dev-access-secret-change-me"),
+            refresh_secret=_env_string("JWT_REFRESH_SECRET", "dev-refresh-secret-change-me"),
+            access_ttl_seconds=_env_int("JWT_ACCESS_TTL_SECONDS", 900),
+            refresh_ttl_seconds=_env_int("JWT_REFRESH_TTL_SECONDS", 604800),
+            issuer=_env_string("JWT_ISSUER", "swe-midterm-fastapi"),
         )
 
 
-@dataclass(frozen=True, slots=True)
+def _env_string(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return value
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return int(value)
+
+
+@dataclass(frozen=True)
 class IssuedToken:
     value: str
     expires_at: datetime
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class TokenClaims:
     subject: str
     token_type: Literal["access", "refresh"]
     session_id: str
     issued_at: datetime
     expires_at: datetime
+    name: str | None = None
+    email: str | None = None
+    workspace_ids: list[str] | None = None
 
 
 def hash_password(password: str) -> str:
@@ -103,10 +120,13 @@ def create_access_token(
     *,
     user_id: str,
     session_id: str,
+    display_name: str,
+    email: str,
+    workspace_ids: list[str],
     settings: AuthSettings,
     now: datetime | None = None,
 ) -> IssuedToken:
-    issued_at = now or datetime.now(UTC)
+    issued_at = now or datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(seconds=settings.access_ttl_seconds)
     return IssuedToken(
         value=_encode_jwt(
@@ -115,6 +135,9 @@ def create_access_token(
                 "sid": session_id,
                 "typ": "access",
                 "iss": settings.issuer,
+                "name": display_name,
+                "email": email,
+                "workspaceIds": workspace_ids,
                 "iat": int(issued_at.timestamp()),
                 "exp": int(expires_at.timestamp()),
             },
@@ -131,7 +154,7 @@ def create_refresh_token(
     settings: AuthSettings,
     now: datetime | None = None,
 ) -> IssuedToken:
-    issued_at = now or datetime.now(UTC)
+    issued_at = now or datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(seconds=settings.refresh_ttl_seconds)
     return IssuedToken(
         value=_encode_jwt(
@@ -213,7 +236,7 @@ def _decode_jwt(
     if not isinstance(issued_at, int) or not isinstance(expires_at, int):
         raise TokenValidationError("Token timestamps are invalid.")
 
-    now_ts = int(datetime.now(UTC).timestamp())
+    now_ts = int(datetime.now(timezone.utc).timestamp())
     if expires_at <= now_ts:
         raise TokenExpiredError("Token has expired.")
 
@@ -221,8 +244,11 @@ def _decode_jwt(
         subject=subject,
         session_id=session_id,
         token_type=expected_type,
-        issued_at=datetime.fromtimestamp(issued_at, tz=UTC),
-        expires_at=datetime.fromtimestamp(expires_at, tz=UTC),
+        issued_at=datetime.fromtimestamp(issued_at, tz=timezone.utc),
+        expires_at=datetime.fromtimestamp(expires_at, tz=timezone.utc),
+        name=payload.get("name") if isinstance(payload.get("name"), str) else None,
+        email=payload.get("email") if isinstance(payload.get("email"), str) else None,
+        workspace_ids=payload.get("workspaceIds") if isinstance(payload.get("workspaceIds"), list) else None,
     )
 
 

@@ -75,6 +75,7 @@ def _build_auth_response(
             email=user.email,
             displayName=user.display_name,
             workspaceRole=user.workspace_role,
+            workspaceIds=list(user.workspace_ids or []),
             createdAt=user.created_at,
         ),
         tokens=TokenBundleResponse(
@@ -103,7 +104,14 @@ def _build_tokens_for_user(
         if refresh_session_id is not None
         else store.create_refresh_session(user_id=user.user_id, ttl_seconds=settings.refresh_ttl_seconds)
     )
-    access_token = create_access_token(user_id=user.user_id, session_id=refresh_session.session_id, settings=settings)
+    access_token = create_access_token(
+        user_id=user.user_id,
+        session_id=refresh_session.session_id,
+        display_name=user.display_name,
+        email=user.email,
+        workspace_ids=list(user.workspace_ids or []),
+        settings=settings,
+    )
     refresh_token = create_refresh_token(
         user_id=user.user_id,
         session_id=refresh_session.session_id,
@@ -174,11 +182,11 @@ async def register_user(request: Request) -> AuthResponse:
     store = _get_auth_store(request)
 
     try:
-        user = store.register_user(
-            email=payload.email,
-            display_name=payload.displayName,
-            password_hash=hash_password(payload.password),
-        )
+            user = store.register_user(
+                email=payload.email,
+                display_name=payload.displayName,
+                password_hash=hash_password(payload.password),
+            )
     except UserAlreadyExistsError as exc:
         raise ApiApplicationError(
             status_code=status.HTTP_409_CONFLICT,
@@ -268,5 +276,64 @@ async def get_me(current_user: StoredUser = Depends(get_current_user)) -> Curren
         email=user.email,
         displayName=user.display_name,
         workspaceRole=user.workspace_role,
+        workspaceIds=list(user.workspace_ids or []),
         createdAt=user.created_at,
     )
+
+
+@router.get(
+    "/users/resolve",
+    response_model=UserProfileResponse,
+    responses={401: {"model": ApiErrorEnvelope}, 404: {"model": ApiErrorEnvelope}},
+    summary="Resolve a user by user ID or email",
+    description="Returns the canonical in-memory auth profile for a given user ID or email address.",
+)
+async def resolve_user(
+    principal: str,
+    request: Request,
+    _: StoredUser = Depends(get_current_user),
+) -> UserProfileResponse:
+    store = _get_auth_store(request)
+    user = store.resolve_principal(principal)
+    if user is None:
+        raise ApiApplicationError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="USER_NOT_FOUND",
+            message=f"No known user matches '{principal}'.",
+        )
+
+    return UserProfileResponse(
+        userId=user.user_id,
+        email=user.email,
+        displayName=user.display_name,
+        workspaceRole=user.workspace_role,
+        workspaceIds=list(user.workspace_ids or []),
+        createdAt=user.created_at,
+    )
+
+
+@router.get(
+    "/users",
+    response_model=list[UserProfileResponse],
+    responses={401: {"model": ApiErrorEnvelope}},
+    summary="List users for a workspace",
+    description="Returns known users associated with a given workspace ID.",
+)
+async def list_users_for_workspace(
+    workspaceId: str,
+    request: Request,
+    _: StoredUser = Depends(get_current_user),
+) -> list[UserProfileResponse]:
+    store = _get_auth_store(request)
+    users = store.list_users_for_workspace(workspaceId)
+    return [
+        UserProfileResponse(
+            userId=user.user_id,
+            email=user.email,
+            displayName=user.display_name,
+            workspaceRole=user.workspace_role,
+            workspaceIds=list(user.workspace_ids or []),
+            createdAt=user.created_at,
+        )
+        for user in users
+    ]

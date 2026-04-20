@@ -292,12 +292,18 @@ describe("mountApp", () => {
     const root = document.createElement("div");
     document.body.append(root);
     const reactRoot = createRoot(root);
+    const addEventListenerSpy = vi.spyOn(window, "addEventListener");
+    const removeEventListenerSpy = vi.spyOn(window, "removeEventListener");
 
     await act(async () => {
       reactRoot.render(createElement(App));
     });
 
     expect(root.textContent).toContain("Assignment 2 Core App Baseline");
+    expect(addEventListenerSpy).toHaveBeenCalledWith("hashchange", expect.any(Function));
+
     reactRoot.unmount();
+    expect(removeEventListenerSpy).toHaveBeenCalledWith("hashchange", expect.any(Function));
+    expect(root.innerHTML).toBe("");
   });
 });

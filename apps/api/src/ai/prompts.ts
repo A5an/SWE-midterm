@@ -2,6 +2,11 @@ import type { AiFeatureType } from "@swe-midterm/contracts";
 
 export type SupportedAiSuggestionFeature = Extract<AiFeatureType, "rewrite" | "summarize">;
 
+export interface AiPromptDefinition {
+  system: string;
+  user: string;
+}
+
 const cleanWhitespace = (text: string): string =>
   text
     .replace(/\s+/g, " ")
@@ -48,3 +53,45 @@ export const buildAiSuggestion = (
   feature === "rewrite"
     ? buildRewriteSuggestion(selectionText, instructions)
     : buildSummarySuggestion(selectionText);
+
+export const buildAiPromptDefinition = (
+  feature: SupportedAiSuggestionFeature,
+  selectionText: string,
+  instructions: string | null
+): AiPromptDefinition => {
+  const trimmedSelection = selectionText.trim();
+  const trimmedInstructions = instructions?.trim() || "";
+
+  if (feature === "rewrite") {
+    return {
+      system:
+        "You rewrite selected text inside a collaborative document editor. Return only the rewritten text. Do not add commentary, markdown fences, or labels unless the input already requires them.",
+      user: [
+        "Task: Rewrite the selected text to improve clarity and concision while preserving meaning.",
+        trimmedInstructions.length > 0 ? `Extra instructions: ${trimmedInstructions}` : null,
+        "Return only the final rewritten text.",
+        "",
+        "Selected text:",
+        trimmedSelection
+      ]
+        .filter((part): part is string => part !== null)
+        .join("\n")
+    };
+  }
+
+  return {
+    system:
+      "You summarize selected text inside a collaborative document editor. Return only the summary text. Do not add commentary, markdown fences, or labels unless the user explicitly asks for them.",
+    user: [
+      "Task: Produce a concise summary of the selected text.",
+      "Preserve the original factual meaning.",
+      trimmedInstructions.length > 0 ? `Extra instructions: ${trimmedInstructions}` : null,
+      "Return only the summary text.",
+      "",
+      "Selected text:",
+      trimmedSelection
+    ]
+      .filter((part): part is string => part !== null)
+      .join("\n")
+  };
+};

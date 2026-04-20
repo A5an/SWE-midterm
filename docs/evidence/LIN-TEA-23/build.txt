@@ -1,0 +1,21 @@
+
+> swe-midterm@0.1.0 build
+> npm --workspace @swe-midterm/contracts run build && ([ -d apps/web ] && npm --workspace @swe-midterm/web run build || true)
+
+
+> @swe-midterm/contracts@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @swe-midterm/web@0.1.0 build
+> vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 756 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.40 kB │ gzip:   0.27 kB
+dist/assets/index-B2UjyygC.css    7.58 kB │ gzip:   2.23 kB
+dist/assets/index-ByBFVN8S.js   407.73 kB │ gzip: 122.67 kB
+✓ built in 1.03s

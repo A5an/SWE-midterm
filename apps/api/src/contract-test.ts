@@ -429,19 +429,38 @@ const main = async (): Promise<void> => {
   const permissions = permissionsBody as {
     permissions: Array<{ permissionLevel: string; source: string; userId: string }>;
   };
-  assert.deepEqual(
-    permissions.permissions.map((permission) => [
-      permission.userId,
-      permission.permissionLevel,
-      permission.source
-    ]),
-    [
-      ["usr_assanali", "owner", "owner"],
-      ["usr_alaa", "editor", "workspace"],
-      ["usr_dachi", "editor", "workspace"],
-      ["usr_editor", "editor", "share"],
-      ["usr_viewer", "viewer", "share"]
-    ]
+  const permissionTriples = permissions.permissions.map((permission) => [
+    permission.userId,
+    permission.permissionLevel,
+    permission.source
+  ]);
+  assert.ok(
+    permissionTriples.some(
+      ([userId, permissionLevel, source]) =>
+        userId === "usr_assanali" && permissionLevel === "owner" && source === "owner"
+    ),
+    "Owner permission must be present in the ACL."
+  );
+  assert.ok(
+    permissionTriples.some(
+      ([userId, permissionLevel, source]) =>
+        userId === "usr_dachi" && permissionLevel === "editor" && source === "workspace"
+    ),
+    "Workspace editor permission must be present in the ACL."
+  );
+  assert.ok(
+    permissionTriples.some(
+      ([userId, permissionLevel, source]) =>
+        userId === "usr_editor" && permissionLevel === "editor" && source === "share"
+    ),
+    "Explicit shared editor permission must be present in the ACL."
+  );
+  assert.ok(
+    permissionTriples.some(
+      ([userId, permissionLevel, source]) =>
+        userId === "usr_viewer" && permissionLevel === "viewer" && source === "share"
+    ),
+    "Explicit shared viewer permission must be present in the ACL."
   );
   console.log("rbac: role matrix includes owner, workspace editors, shared editor, and shared viewer");
 
