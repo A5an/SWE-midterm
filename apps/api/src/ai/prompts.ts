@@ -7,6 +7,11 @@ export interface AiPromptDefinition {
   user: string;
 }
 
+export interface AiPromptContext {
+  after: string;
+  before: string;
+}
+
 const cleanWhitespace = (text: string): string =>
   text
     .replace(/\s+/g, " ")
@@ -57,10 +62,18 @@ export const buildAiSuggestion = (
 export const buildAiPromptDefinition = (
   feature: SupportedAiSuggestionFeature,
   selectionText: string,
-  instructions: string | null
+  instructions: string | null,
+  context: AiPromptContext
 ): AiPromptDefinition => {
   const trimmedSelection = selectionText.trim();
   const trimmedInstructions = instructions?.trim() || "";
+  const trimmedBefore = context.before.trim();
+  const trimmedAfter = context.after.trim();
+  const contextLines = [
+    "Surrounding document context:",
+    `Before selection: ${trimmedBefore.length > 0 ? trimmedBefore : "(none)"}`,
+    `After selection: ${trimmedAfter.length > 0 ? trimmedAfter : "(none)"}`
+  ];
 
   if (feature === "rewrite") {
     return {
@@ -69,6 +82,7 @@ export const buildAiPromptDefinition = (
       user: [
         "Task: Rewrite the selected text to improve clarity and concision while preserving meaning.",
         trimmedInstructions.length > 0 ? `Extra instructions: ${trimmedInstructions}` : null,
+        ...contextLines,
         "Return only the final rewritten text.",
         "",
         "Selected text:",
@@ -86,6 +100,7 @@ export const buildAiPromptDefinition = (
       "Task: Produce a concise summary of the selected text.",
       "Preserve the original factual meaning.",
       trimmedInstructions.length > 0 ? `Extra instructions: ${trimmedInstructions}` : null,
+      ...contextLines,
       "Return only the summary text.",
       "",
       "Selected text:",

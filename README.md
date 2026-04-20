@@ -10,19 +10,20 @@ This repo currently contains:
 ## Current Baseline Scope
 
 Implemented and demo-ready in the main runnable baseline:
-- authenticated document create/load flow
+- authenticated dashboard-backed document create/load/save/delete flow
 - dashboard list and rich-text editor shell
 - autosave status and version history restore flow
 - document sharing with `owner` / `editor` / `viewer`
 - authenticated collaboration session bootstrap, presence, and reconnect replay
-- AI rewrite/summarize streaming with cancel, compare, apply/reject/edit/undo, and history
+- silent FastAPI JWT refresh across protected document, sharing, versions, collaboration-session bootstrap, and AI requests
+- AI rewrite/summarize streaming with cancel, compare, apply/reject/edit/undo, and history that retains prompt/context metadata
 - a minimal React shell in `apps/web` that mounts the existing imperative UI without a full rewrite
 - an env-configurable AI provider boundary that supports LM Studio via OpenAI-compatible streaming
 
 Known implementation boundary:
 - collaboration and AI still run inside `apps/api`
 - `apps/collab` and `apps/ai-worker` remain placeholders while the baseline stays single-backend runnable
-- the FastAPI backend currently covers canonical auth plus protected create/load proof, not full collaboration and AI parity
+- the FastAPI backend currently covers canonical auth plus protected in-memory document CRUD proof, not full collaboration and AI parity
 
 Deviations from the Assignment 1 architecture are tracked in [DEVIATIONS.md](DEVIATIONS.md).
 
@@ -144,9 +145,9 @@ Frontend auth proof routes in `apps/web`:
 - `#auth/register`
 - `#auth/workspace`
 
-The FastAPI proof now requires `Authorization: Bearer <access token>` on `POST /v1/documents` and `GET /v1/documents/{documentId}` and returns the standard 401 error envelope when auth is missing or invalid.
+The FastAPI proof now requires `Authorization: Bearer <access token>` on `GET /v1/documents`, `POST /v1/documents`, `GET /v1/documents/{documentId}`, `PATCH /v1/documents/{documentId}`, and `DELETE /v1/documents/{documentId}`. Missing or invalid auth returns the standard 401 error envelope, and the in-memory CRUD flow is owner-scoped.
 
-The integrated app also reuses the FastAPI session for Node-backed documents, collaboration, and AI because `apps/api` accepts the same access token. The seeded `POST /v1/auth/demo-login` bridge returns the real short-lived JWT lifetime from that access token rather than presenting a separate 8-hour access window. Collaboration session tokens and AI stream tokens remain separate short-lived service tokens inside `apps/api`.
+The integrated app also reuses the FastAPI session for Node-backed documents, sharing, version history, collaboration, and AI because `apps/api` accepts the same access token. When that shared access token expires during those flows, the main editor app now performs one silent refresh via `/v1/auth/refresh`, updates the stored session, and retries the protected request once. The seeded `POST /v1/auth/demo-login` bridge still returns the real short-lived JWT lifetime from that access token rather than presenting a separate long-lived demo window. Collaboration session tokens and AI stream tokens remain separate short-lived service tokens inside `apps/api`.
 
 To exercise the FastAPI auth flow from the web app:
 1. Start the FastAPI app on port `4021`.

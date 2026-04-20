@@ -1,5 +1,6 @@
 import {
   buildAiPromptDefinition,
+  type AiPromptContext,
   buildAiSuggestion,
   type SupportedAiSuggestionFeature
 } from "./prompts.ts";
@@ -25,6 +26,7 @@ export interface AiSuggestionProvider {
   streamSuggestion(
     feature: SupportedAiSuggestionFeature,
     selectionText: string,
+    context: AiPromptContext,
     instructions: string | null,
     options?: {
       signal?: AbortSignal;
@@ -38,6 +40,7 @@ class DemoAiSuggestionProvider implements AiSuggestionProvider {
   async *streamSuggestion(
     feature: SupportedAiSuggestionFeature,
     selectionText: string,
+    _context: AiPromptContext,
     instructions: string | null
   ): AsyncIterable<string> {
     const suggestion = buildAiSuggestion(feature, selectionText, instructions);
@@ -68,12 +71,13 @@ class OpenAiCompatibleSuggestionProvider implements AiSuggestionProvider {
   async *streamSuggestion(
     feature: SupportedAiSuggestionFeature,
     selectionText: string,
+    context: AiPromptContext,
     instructions: string | null,
     options?: {
       signal?: AbortSignal;
     }
   ): AsyncIterable<string> {
-    const prompt = buildAiPromptDefinition(feature, selectionText, instructions);
+    const prompt = buildAiPromptDefinition(feature, selectionText, instructions, context);
     const response = await fetch(`${this.#baseUrl}/chat/completions`, {
       method: "POST",
       headers: {

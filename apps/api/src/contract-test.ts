@@ -1115,6 +1115,26 @@ const main = async (): Promise<void> => {
   assert.equal(rewriteHistoryRecord.jobId, rewriteJob.jobId);
   assert.equal(rewriteHistoryRecord.status, "completed");
   assert.equal(rewriteHistoryRecord.decision, "pending");
+  assert.equal(
+    typeof (rewriteHistoryRecord as { promptSystem?: unknown }).promptSystem,
+    "string",
+    "AI history must retain the exact system prompt."
+  );
+  assert.equal(
+    typeof (rewriteHistoryRecord as { promptUser?: unknown }).promptUser,
+    "string",
+    "AI history must retain the exact user prompt."
+  );
+  assert.equal(
+    typeof (rewriteHistoryRecord as { contextBefore?: unknown }).contextBefore,
+    "string",
+    "AI history must retain context before the selection."
+  );
+  assert.equal(
+    typeof (rewriteHistoryRecord as { contextAfter?: unknown }).contextAfter,
+    "string",
+    "AI history must retain context after the selection."
+  );
 
   const acceptDecisionResponse = await fetch(
     `${baseUrl}/v1/documents/${created.documentId}/ai/jobs/${rewriteJob.jobId}/decision`,
@@ -1343,6 +1363,38 @@ const main = async (): Promise<void> => {
 
   reconnectedEditor.ws.close();
   ownerSocket.ws.close();
+
+  const editorDeleteResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    method: "DELETE",
+    headers: authHeaders(editor.accessToken)
+  });
+  assert.equal(editorDeleteResponse.status, 403, "Shared editors must not delete owner documents.");
+  const editorDeleteBody = (await editorDeleteResponse.json()) as { error: { code: string } };
+  assert.equal(editorDeleteBody.error.code, "AUTHZ_FORBIDDEN");
+
+  const ownerDeleteResponse = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    method: "DELETE",
+    headers: authHeaders(owner.accessToken)
+  });
+  assert.equal(ownerDeleteResponse.status, 204, "Owners must be able to delete documents.");
+  assert.equal(await ownerDeleteResponse.text(), "");
+
+  const ownerListAfterDelete = await fetch(`${baseUrl}/v1/documents`, {
+    headers: authHeaders(owner.accessToken)
+  });
+  assert.equal(ownerListAfterDelete.status, 200);
+  const ownerListAfterDeleteBody = (await ownerListAfterDelete.json()) as { documents: Array<{ documentId: string }> };
+  assert.equal(
+    ownerListAfterDeleteBody.documents.some((document) => document.documentId === created.documentId),
+    false,
+    "Deleted documents must disappear from the dashboard list."
+  );
+
+  const missingAfterDelete = await fetch(`${baseUrl}/v1/documents/${created.documentId}`, {
+    headers: authHeaders(owner.accessToken)
+  });
+  assert.equal(missingAfterDelete.status, 404, "Deleted documents must no longer load.");
+  console.log("doc-delete: owner-only delete removes the document from subsequent list/load flows");
 
   console.log("API + websocket contract tests passed.");
 };

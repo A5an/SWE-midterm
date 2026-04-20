@@ -1,0 +1,4 @@
+Branch: feat/LIN-TEA-25-auth-refresh-crud
+Implementation commit: f32a8a18c50739764dcd7c05b392bb4383b3a512
+PR link: https://github.com/A5an/SWE-midterm/pull/20
+Note: if more commits are added after this evidence update, append the new HEAD SHA in the PR description or refresh this note.
